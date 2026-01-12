@@ -21,3 +21,17 @@ class EuropeanOption(Option):
         S_T = prices[:, -1]
         phi = self.option_type.value
         return np.maximum(phi * (S_T - self.K), 0)
+    
+class AsianOption(Option):
+    """
+    Arithmetic Asian Option.
+    Payoff depends on the arithmetic mean of the asset price path.
+    """
+    def payoff(self, prices: np.ndarray) -> np.ndarray:
+        # Calculate arithmetic mean across time steps (excluding t=0)
+        # prices shape: (N_paths, N_steps + 1)
+        average_price = np.mean(prices[:, 1:], axis=1)
+        
+        phi = self.option_type.value
+        # Payoff: max(phi * (Average - K), 0)
+        return np.maximum(phi * (average_price - self.K), 0)
