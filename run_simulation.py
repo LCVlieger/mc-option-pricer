@@ -1,6 +1,6 @@
-from src.instruments import EuropeanCallOption
+from src.instruments import EuropeanOption, OptionType
 from src.mc_pricer import MonteCarloPricer
-from src.analytics import BlackScholesPricer 
+from src.analytics import BlackScholesPricer
 
 def main():
     # Parameters
@@ -11,7 +11,7 @@ def main():
     print(f"Black-Scholes Analytical price: {bs_price:.4f}")
 
     # 2. Monte Carlo Price (The simulation)
-    call_option = EuropeanCallOption(K, T)
+    call_option = EuropeanOption(K, T, OptionType.CALL)
     mc_engine = MonteCarloPricer(r, sigma)
     mc_price = mc_engine.price_option(call_option, S0, n_paths=100000)
     print(f"Monte Carlo Simulation price:     {mc_price:.4f}")
