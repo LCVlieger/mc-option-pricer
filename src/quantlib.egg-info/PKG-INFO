@@ -6,3 +6,4 @@ Requires-Dist: numpy
 Requires-Dist: scipy
 Requires-Dist: numba
 Requires-Dist: matplotlib
+Requires-Dist: pytest
