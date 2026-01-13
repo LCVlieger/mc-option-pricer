@@ -72,4 +72,4 @@ pytest tests/test_pricing.py -v
 ```
 
 * **Convergence Checks**: Verifies that Monte Carlo estimates converge to the exact Black-Scholes price (European) and Turnbull-Wakeman approximation (Asian) within statistical tolerance.
-* **Financial Invariants**: Validates logical consistency, such as **Put-Call Parity** ($C - P = S - Ke^{-rT}$).
+* **Financial Invariants**: Validates logical consistency, such as **Put-Call Parity** ($C - P = S - Ke^{-rT}$)
