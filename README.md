@@ -1,27 +1,31 @@
-# QuantLib: Numba-Accelerated Monte Carlo Pricer
+# QuantLib: Numba-Accelerated Exotic Option Pricer
 
-High-performance, JIT-compiled Monte Carlo engine for pricing European and Arithmetic Asian options. Validated against Black-Scholes (exact) and Turnbull-Wakeman (approximate) benchmarks.
+High-performance, JIT-compiled Monte Carlo engine for pricing Exotic derivatives under Black-Scholes and Heston Stochastic Volatility models.
 
 ## Core Features
 
-* **JIT Compilation**: Kernel loop decorated with `@jit(nopython=True)` to bypass Python interpreter overhead, achieving **~28x speedup** over vectorized NumPy.
-* **Path Dependency**: Implements on-the-fly averaging for Arithmetic Asian options to minimize memory footprint.
-* **Variance Reduction**: Uses Antithetic Variates ($Z, -Z$) to reduce standard error convergence rates.
-* **Sensitivity Analysis**: Automated Finite Difference methods (using Common Random Numbers) for stable Delta and Gamma calculation.
+*   **Stochastic Volatility**: Implemented the Heston (1993) model to capture volatility clustering and the "leverage effect" (spot-volatility correlation) observed in equity markets.
+*   **Exotic Payoffs**: Supports path-dependent instruments, including **Barrier Options** (Knock-Out/Knock-In) and **Arithmetic Asian Options**.
+*   **Numerical Stability**: Heston kernel utilizes a Full Truncation scheme to enforce variance positivity and prevent numerical explosion during simulation.
+*   **Polymorphic Architecture**: utilized the Strategy Pattern to decouple the market model (GBM vs. Heston) from the pricing engine, enabling seamless extension to new stochastic processes.
+*   **JIT Compilation**: Kernel loops decorated with `@jit(nopython=True)` to bypass Python interpreter overhead, achieving **~28x speedup** over vectorized NumPy.
 
 ## Mathematical Methodology
 
-**1. Stochastic Process (Geometric Brownian Motion)**
-Discretized via Log-Euler scheme under risk-neutral measure $\mathbb{Q}$:
-$$S_{t+\Delta t} = S_t \exp\left( (r - \frac{1}{2}\sigma^2)\Delta t + \sigma \sqrt{\Delta t} Z \right), \quad Z \sim \mathcal{N}(0,1)$$
+**1. Geometric Brownian Motion (Black-Scholes)**
+Standard risk-neutral discretization:
+$$S_{t+\Delta t} = S_t \exp\left( (r - \frac{1}{2}\sigma^2)\Delta t + \sigma \sqrt{\Delta t} Z \right)$$
 
-**2. Arithmetic Asian Payoff**
-No closed-form solution exists for the sum of lognormals. We price based on discrete averaging:
-$$\text{Payoff} = \max\left( \frac{1}{N}\sum_{i=1}^N S_{t_i} - K, 0 \right)$$
+**2. Heston Stochastic Volatility**
+Modeled via two correlated Stochastic Differential Equations (SDEs):
+$$ dS_t = r S_t dt + \sqrt{v_t} S_t dW_S $$
+$$ dv_t = \kappa (\theta - v_t) dt + \xi \sqrt{v_t} dW_v $$
+*   **Correlation**: $dW_S$ and $dW_v$ are correlated with coefficient $\rho$ via Cholesky decomposition.
+*   **Mean Reversion**: Variance $v_t$ reverts to long-run mean $\theta$ at speed $\kappa$.
 
-**3. Validation Benchmarks**
-* **European**: Convergence checked against Black-Scholes-Merton analytic formula.
-* **Asian**: Calibrated against Turnbull-Wakeman approximation (Moment Matching).
+**3. Exotic Payoffs**
+*   **Asian**: Arithmetic mean of the price path $\frac{1}{N}\sum S_{t_i}$.
+*   **Barrier**: Discrete monitoring of path extrema ($\min(S_t)$ or $\max(S_t)$) to determine Knock-In/Knock-Out events.
 
 ## Performance
 
@@ -36,34 +40,47 @@ $$\text{Payoff} = \max\left( \frac{1}{N}\sum_{i=1}^N S_{t_i} - K, 0 \right)$$
 ## Installation & Usage
 
 ```bash
-git clone [https://github.com/yourusername/quantlib.git](https://github.com/yourusername/quantlib.git)
+git clone https://github.com/LCVlieger/mc-option-pricer
 pip install -e .
 ```
 
-### Example: Pricing & Risk Analysis
+### Example: Pricing a Heston Barrier Option
 
 ```python
 from quantlib.market import MarketEnvironment
-from quantlib.instruments import AsianOption, OptionType
+from quantlib.instruments import BarrierOption, BarrierType, OptionType
+from quantlib.models.process import HestonProcess
 from quantlib.models.mc_pricer import MonteCarloPricer
 
-# 1. Configure Environment
-env = MarketEnvironment(S0=100, r=0.05, sigma=0.2)
-asian_call = AsianOption(K=100, T=1.0, option_type=OptionType.CALL)
-pricer = MonteCarloPricer(env)
+# 1. Configure Market with Heston Parameters
+# v0=Initial Var, kappa=Mean Rev, theta=Long Run Var, xi=Vol of Vol, rho=Correlation
+env = MarketEnvironment(
+    S0=100, r=0.05, 
+    v0=0.04, kappa=1.5, theta=0.04, xi=0.3, rho=-0.7
+)
 
-# 2. Calculate Price (Value)
+# 2. Initialize Model and Instrument
+process = HestonProcess(env)
+pricer = MonteCarloPricer(process)
+
+barrier_opt = BarrierOption(
+    K=100, T=1.0, 
+    barrier=85.0, 
+    barrier_type=BarrierType.DOWN_AND_OUT, 
+    option_type=OptionType.CALL
+)
+
+# 3. Calculate Price
 # Returns price, standard error, and 95% confidence interval
-res = pricer.price_option(asian_call, n_paths=1_000_000)
+res = pricer.price(barrier_opt, n_paths=100_000)
 print(f"Price: {res.price:.4f} +/- {1.96 * res.std_error:.4f}")
 
-# 3. Calculate Greeks (Risk Sensitivities)
-# Uses Finite Differences with Common Random Numbers (CRN)
-greeks = pricer.compute_greeks(asian_call)
+# 4. Calculate Greeks (Finite Difference)
+greeks = pricer.compute_greeks(barrier_opt)
 print(f"Delta: {greeks['delta']:.4f}, Gamma: {greeks['gamma']:.4f}")
 ```
 
-## Testing
+## Testing & Validation
 
 The library includes a regression test suite to ensure mathematical accuracy.
 
@@ -71,5 +88,6 @@ The library includes a regression test suite to ensure mathematical accuracy.
 pytest tests/test_pricing.py -v
 ```
 
+* **Heston Validation:**: Monte Carlo results are cross-validated against the Semi-Analytical Solution (using Fourier integration logic similar to Heston '93)
 * **Convergence Checks**: Verifies that Monte Carlo estimates converge to the exact Black-Scholes price (European) and Turnbull-Wakeman approximation (Asian) within statistical tolerance.
-* **Financial Invariants**: Validates logical consistency, such as **Put-Call Parity** ($C - P = S - Ke^{-rT}$)
+* **Parity checks**: Validates logical consistency, such as **Put-Call Parity** ($C - P = S - Ke^{-rT}$)
