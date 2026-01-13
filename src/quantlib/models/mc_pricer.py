@@ -8,7 +8,7 @@ class MonteCarloPricer:
         self.market = market
 
     def price_option(self, option: Option, n_paths: int = 10000, n_steps: int = 100) -> float:
-        # 1. Delegate math to the kernel
+        # 1. Kernel generates paths
         paths = generate_paths_kernel(
             self.market.S0,
             self.market.r,
@@ -18,7 +18,7 @@ class MonteCarloPricer:
             n_steps
         )
         
-        # 2. Delegate payoff to the instrument
+        # 2. Instrument computes the payoffs
         payoffs = option.payoff(paths)
         
         # 3. Discounting

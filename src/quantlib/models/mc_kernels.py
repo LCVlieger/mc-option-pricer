@@ -5,10 +5,7 @@ from numba import jit
 def generate_paths_kernel(S0: float, r: float, sigma: float, 
                           T: float, n_paths: int, n_steps: int) -> np.ndarray:
     """
-    JIT-compiled Geometric Brownian Motion generator.
-    OPTIMIZATION: Uses loops instead of vectorized NumPy.
-    In Numba, loops are compiled to C-speed and avoid allocating 
-    intermediate arrays, making this faster and more memory efficient.
+    JIT-compiled Geometric Brownian Motion generator. 
     """
     dt = T / n_steps
 

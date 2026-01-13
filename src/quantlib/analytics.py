@@ -17,8 +17,8 @@ class BlackScholesPricer:
     def price_asian_arithmetic_approximation(S0, K, T, r, sigma):
         """
         Calculates the approximate price of an Arithmetic Asian Call using 
-        Moment Matching (Turnbull-Wakeman / Levy).
-        Ref: Hull, Options Futures & Derivatives 11th edition, '26.13: Asian Options, p.626'.
+        Moment Matching (Turnbull-Wakeman / Levy). Reference: 
+        Hull, Options Futures & Derivatives 11th edition, '26.13: Asian Options, p.626'.
         """
         # 1. Calculate the first two moments of the continuous average
         # M1 = First Moment: Expected Average
