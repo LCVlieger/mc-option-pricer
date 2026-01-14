@@ -1,6 +1,6 @@
 import numpy as np
-from quantlib.analytics import HestonAnalyticalPricer
-from quantlib.calibration import HestonCalibrator, MarketOption
+from heston_pricer.analytics import HestonAnalyticalPricer
+from heston_pricer.calibration import HestonCalibrator, MarketOption
 
 def main():
     # 1. Simulate the Market (The "Hidden Truth")

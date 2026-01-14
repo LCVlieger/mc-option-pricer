@@ -1,6 +1,6 @@
 import time
 import numpy as np
-from quantlib.models.mc_kernels import generate_heston_paths
+from heston_pricer.models.mc_kernels import generate_heston_paths
 
 def main():
     # 1. Parameters

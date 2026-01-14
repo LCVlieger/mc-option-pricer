@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 from scipy.optimize import brentq
 from scipy.stats import norm
-from quantlib.analytics import HestonAnalyticalPricer
+from heston_pricer.analytics import HestonAnalyticalPricer
 
 def impl_vol(price, S0, K, T, r, q):
     """ 
