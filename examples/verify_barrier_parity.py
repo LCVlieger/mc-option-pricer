@@ -1,7 +1,7 @@
 import numpy as np
-from quantlib.market import MarketEnvironment
-from quantlib.instruments import EuropeanOption, BarrierOption, BarrierType, OptionType
-from quantlib.models.mc_pricer import MonteCarloPricer
+from heston_pricer.market import MarketEnvironment
+from heston_pricer.instruments import EuropeanOption, BarrierOption, BarrierType, OptionType
+from heston_pricer.models.mc_pricer import MonteCarloPricer
 
 def main():
     # 1. Setup

@@ -1,36 +1,40 @@
-# QuantLib: Numba-Accelerated Exotic Option Pricer
+# HestonPricer: High-Performance Stochastic Volatility Engine
 
-High-performance, JIT-compiled Monte Carlo engine for pricing Exotic derivatives under Black-Scholes and Heston Stochastic Volatility models.
+**A JIT-compiled pricing and calibration library for Exotic Derivatives, bridging the gap between mathematical theory (Shreve/Hull) and production engineering.**
 
-## Core Features
+##  Key Capabilities
 
-*   **Stochastic Volatility**: Implemented the Heston (1993) model to capture volatility clustering and the "leverage effect" (spot-volatility correlation) observed in equity markets.
-*   **Exotic Payoffs**: Supports path-dependent instruments, including **Barrier Options** (Knock-Out/Knock-In) and **Arithmetic Asian Options**.
-*   **Numerical Stability**: Heston kernel utilizes a Full Truncation scheme to enforce variance positivity and prevent numerical explosion during simulation.
-*   **Polymorphic Architecture**: utilized the Strategy Pattern to decouple the market model (GBM vs. Heston) from the pricing engine, enabling seamless extension to new stochastic processes.
-*   **JIT Compilation**: Kernel loops decorated with `@jit(nopython=True)` to bypass Python interpreter overhead, achieving **~28x speedup** over vectorized NumPy.
+* **Real-Time Calibration**: Solves the inverse problem for Heston parameters ($\kappa, \theta, \xi, \rho, v_0$) using **L-BFGS-B** optimization against live **S&P 500** option chains.
+* **HPC Architecture**: Python loops are replaced with **Numba** kernels (LLVM compilation), achieving a **~28x speedup** over vectorized NumPy for Monte Carlo simulation.
+* **Exotic Pricing**: Supports path-dependent payoffs including **Barrier (Knock-Out/Knock-In)** and **Arithmetic Asian** options.
+* **Mathematical Rigor**: Implements **Gil-Pelaez Fourier Inversion** for fast calibration and **Full Truncation Euler** discretization for simulation stability.
 
-## Mathematical Methodology
+---
+
+##  Mathematical Methodology
 
 **1. Geometric Brownian Motion (Black-Scholes)**
-Standard risk-neutral discretization:
-$$S_{t+\Delta t} = S_t \exp\left( (r - \frac{1}{2}\sigma^2)\Delta t + \sigma \sqrt{\Delta t} Z \right)$$
+Standard risk-neutral discretization for an asset with risk-free rate $r$ and dividend yield $q$:
+$$S_{t+\Delta t} = S_t \exp\left( (r - q - \frac{1}{2}\sigma^2)\Delta t + \sigma \sqrt{\Delta t} Z \right)$$
 
-**2. Heston Stochastic Volatility**
-Modeled via two correlated Stochastic Differential Equations (SDEs): 
+**2. Heston Stochastic Volatility Model**
+Modeled via two correlated Stochastic Differential Equations (SDEs) to capture volatility clustering and skew (leverage effect):
 
-$$
-dS_t = r S_t dt + \sqrt{v_t} S_t dW_S $$\
-$$ dv_t = \kappa (\theta - v_t) dt + \xi \sqrt{v_t} dW_v $$ \
-$$\text{Corr}(dW_S, dW_v) = \rho $$
-*   **Correlation**: $dW_S$ and $dW_v$ are correlated with coefficient $\rho$ via Cholesky decomposition.
-*   **Mean Reversion**: Variance $v_t$ reverts to long-run mean $\theta$ at speed $\kappa$.
+$$dS_t = (r - q) S_t dt + \sqrt{v_t} S_t dW_S$$
+$$dv_t = \kappa (\theta - v_t) dt + \xi \sqrt{v_t} dW_v$$
+$$\text{Corr}(dW_S, dW_v) = \rho$$
+
+* **$\rho$ (Correlation):** Controls the **Skew**. A negative $\rho$ (e.g., -0.7) means when Spot falls, Volatility spikes (Crash Risk).
+* **$\xi$ (Vol of Vol):** Controls the **Smile** (Kurtosis/Fat Tails).
+* **$\kappa$ (Mean Reversion):** The speed at which variance returns to the long-run average $\theta$.
 
 **3. Exotic Payoffs**
-*   **Asian**: Arithmetic mean of the price path $\frac{1}{N}\sum S_{t_i}$.
-*   **Barrier**: Discrete monitoring of path extrema ($\min(S_t)$ or $\max(S_t)$) to determine Knock-In/Knock-Out events.
+* **Asian Option**: Payoff depends on the arithmetic mean of the path: $\max(\frac{1}{N}\sum S_{t_i} - K, 0)$.
+* **Barrier Option**: Path-dependent activation. The option creates (Knock-In) or destroys (Knock-Out) value if $S_t$ breaches a barrier $B$ at any time $t$.
 
-## Performance
+---
+
+##  Performance Benchmarks
 
 *Hardware: Standard Cloud Instance (Python 3.10)*
 
@@ -38,49 +42,52 @@ $$\text{Corr}(dW_S, dW_v) = \rho $$
 | :--- | :--- | :--- | :--- |
 | **Pure Python** | 50k | 2.12 s | 1.0x |
 | **NumPy Vectorized** | 50k | 0.09 s | ~23x |
-| **QuantLib (Numba)** | 1M | **2.08 s** | **~28x (vs Vectorized)** |
+| **HestonPricer (Numba)** | 1M | **2.08 s** | **~28x (vs Vectorized)** |
 
-## Installation & Usage
+*Note: Numba JIT compiles the Monte Carlo kernel to machine code, bypassing the Python Global Interpreter Lock (GIL) overhead for the inner loops.*
+
+---
+
+##  Installation & Usage
 
 ```bash
-git clone https://github.com/LCVlieger/mc-option-pricer
+git clone [https://github.com/LCVlieger/heston_pricer](https://github.com/LCVlieger/heston_pricer)
 pip install -e .
 ```
 
 ### Example: Pricing a Heston Barrier Option
 
 ```python
-from quantlib.market import MarketEnvironment
-from quantlib.instruments import BarrierOption, BarrierType, OptionType
-from quantlib.models.process import HestonProcess
-from quantlib.models.mc_pricer import MonteCarloPricer
+from heston_pricer.market import MarketEnvironment
+from heston_pricer.instruments import BarrierOption, BarrierType, OptionType
+from heston_pricer.models.process import HestonProcess
+from heston_pricer.models.mc_pricer import MonteCarloPricer
 
-# 1. Configure Market with Heston Parameters
-# v0=Initial Var, kappa=Mean Rev, theta=Long Run Var, xi=Vol of Vol, rho=Correlation
+# 1. Configure Market (Calibrated to S&P 500)
+# r=4.5%, q=1.5% (Dividend Yield)
 env = MarketEnvironment(
-    S0=100, r=0.05, 
-    v0=0.04, kappa=1.5, theta=0.04, xi=0.3, rho=-0.7
+    S0=6896.00, r=0.045, q=0.015,
+    v0=0.04, kappa=0.1, theta=0.04, xi=2.0, rho=-0.78
 )
 
-# 2. Initialize Model and Instrument
+# 2. Initialize Engine
 process = HestonProcess(env)
 pricer = MonteCarloPricer(process)
 
+# 3. Define Instrument (Down-and-Out Call)
+# Strike=6900, Barrier=6000 (Knock-Out)
 barrier_opt = BarrierOption(
-    K=100, T=1.0, 
-    barrier=85.0, 
+    K=6900, T=0.5, 
+    barrier=6000.0, 
     barrier_type=BarrierType.DOWN_AND_OUT, 
     option_type=OptionType.CALL
 )
 
-# 3. Calculate Price
+# 4. Price (High-Performance Monte Carlo)
 # Returns price, standard error, and 95% confidence interval
-res = pricer.price(barrier_opt, n_paths=100_000)
-print(f"Price: {res.price:.4f} +/- {1.96 * res.std_error:.4f}")
+res = pricer.price(barrier_opt, n_paths=200_000)
 
-# 4. Calculate Greeks (Finite Difference)
-greeks = pricer.compute_greeks(barrier_opt)
-print(f"Delta: {greeks['delta']:.4f}, Gamma: {greeks['gamma']:.4f}")
+print(f"Exotic Price: {res.price:.4f} +/- {1.96 * res.std_error:.4f}")
 ```
 
 ## Testing & Validation

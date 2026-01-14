@@ -1,9 +1,9 @@
 import numpy as np
 import scipy.integrate as integrate
-from quantlib.market import MarketEnvironment
-from quantlib.instruments import EuropeanOption, OptionType
-from quantlib.models.process import HestonProcess
-from quantlib.models.mc_pricer import MonteCarloPricer
+from heston_pricer.market import MarketEnvironment
+from heston_pricer.instruments import EuropeanOption, OptionType
+from heston_pricer.models.process import HestonProcess
+from heston_pricer.models.mc_pricer import MonteCarloPricer
 
 # --- 1. The Exact Analytical Heston Formula (Fourier Transform) ---
 # This uses the Heston 1993 approach extended by Albrecher (2007) for stability.
