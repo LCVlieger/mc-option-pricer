@@ -1,7 +1,7 @@
 import numpy as np
 import time
-from quantlib.calibration import HestonCalibrator
-from quantlib.analytics import HestonAnalyticalPricer
+from heston_pricer.calibration import HestonCalibrator
+from heston_pricer.analytics import HestonAnalyticalPricer
 from fetch_data import fetch_spx_options 
 
 def main():

@@ -1,7 +1,7 @@
-from quantlib.market import MarketEnvironment
-from quantlib.instruments import EuropeanOption, OptionType
-from quantlib.models.process import BlackScholesProcess, HestonProcess
-from quantlib.models.mc_pricer import MonteCarloPricer
+from heston_pricer.market import MarketEnvironment
+from heston_pricer.instruments import EuropeanOption, OptionType
+from heston_pricer.models.process import BlackScholesProcess, HestonProcess
+from heston_pricer.models.mc_pricer import MonteCarloPricer
 
 def main():
     # 1. Define Market

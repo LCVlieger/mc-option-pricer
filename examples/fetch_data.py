@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from typing import List, Tuple
-from quantlib.calibration import MarketOption
+from heston_pricer.calibration import MarketOption
 
 def fetch_spx_options(min_open_interest: int = 500) -> Tuple[List[MarketOption], float]:
     """

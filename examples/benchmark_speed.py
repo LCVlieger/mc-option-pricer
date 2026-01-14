@@ -1,7 +1,7 @@
 import time
 import numpy as np
 import math
-from quantlib.models.mc_kernels import generate_paths_kernel as numba_kernel
+from heston_pricer.models.mc_kernels import generate_paths_kernel as numba_kernel
 
 # --- 1. Python Implementation (Baseline) ---
 def pure_python_mc(S0, r, sigma, T, n_paths, n_steps):
