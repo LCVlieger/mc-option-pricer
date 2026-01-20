@@ -7,47 +7,64 @@ from heston_pricer.models.process import HestonProcess
 from heston_pricer.models.mc_pricer import MonteCarloPricer
 from heston_pricer.instruments import EuropeanOption, OptionType
 def main():
-    S0, r, q  = 100.0, 0.03, 0.0
+    S0, r, q = 100.0, 0.03, 0.0
     
-    # 1. Define True Parameters
-    true_params_list = [1.5, 0.04, 0.5, -0.7, 0.04] 
+    # 1. The Hidden Truth (Theoretical Parameters)
+    true_params = {
+        'kappa': 1.5, 'theta': 0.04, 'xi': 0.5, 'rho': -0.7, 'v0': 0.04
+    }
     
-    # 2. Expanded Strike Surface (to fix the identification issue)
-    strikes = [80, 90, 100, 110, 120] 
-    maturities = [0.5, 1.0, 2.0]      
+    # 2. Generate Market Data using ANALYTICAL FORMULA
+    # This is the "Real World" test.
+    strikes = [80, 90, 100, 110, 120]
+    maturities = [0.5, 1.0, 2.0]
     
-    # 3. Initialize Fast Calibrator
-    # n_steps=100 ensures T=0.5 lands exactly on index 25 (if Max T=2.0)
-    calibrator = HestonCalibratorMC(S0, r, q, n_paths=30001, n_steps=400)
+    print("--- 1. Generating Analytical Market Data (Fourier Transform) ---")
+    market_options = []
     
-    option_list = []
     for T in maturities:
         for K in strikes:
-            option_list.append(MarketOption(K, T, 0.0))
-            
-    # 4. Generate Truth (Batch Method)
-    print("--- 1. Generating Twin Data (Batch/Shared Noise) ---")
-    true_prices = calibrator.get_prices(true_params_list, option_list)
-    
-    for i, opt in enumerate(option_list):
-        opt.market_price = true_prices[i]
-        print(f"Maturity={opt.maturity:<4} Strike={opt.strike:<4} Price={opt.market_price:.4f}")
+            # The "Truth" comes from the Fourier Transform
+            price = HestonAnalyticalPricer.price_european_call(
+                S0, K, T, r, q, **true_params
+            )
+            market_options.append(MarketOption(K, T, price))
+            print(f"Maturity={T:<4} Strike={K:<4} Price={price:.4f}")
 
-    # 5. Calibration
-    print("\n--- 2. Calibrating ---")
-    guess = [0.5, 0.02, 0.1, 0.0, 0.02] 
-    calibrated = calibrator.calibrate(option_list, init_guess=guess)
+    # 3. Calibrate MC Engine to match Analytical Prices
+    print("\n--- 2. Calibrating MC Engine ---")
     
-    # 6. Results
-    print("\n--- 3. Results ---")
-    print(f"{'Param':<10} {'True':<10} {'Calibrated':<10} {'Error'}")
-    print("-" * 45)
+    # Note: n_steps=100 is decent. 
+    # If the error is high, increase n_steps to 200 to reduce Euler bias.
+    calibrator = HestonCalibratorMC(S0, r, q, n_paths=30000, n_steps=100)
+    
+    guess = [0.5, 0.02, 0.1, 0.0, 0.02]
+    print(f"Initial Guess: {guess}")
+    
+    t0 = time.time()
+    calibrated = calibrator.calibrate(market_options, init_guess=guess)
+    dt = time.time() - t0
+    
+    # 4. Results
+    print(f"\n--- 3. Calibration Results ({dt:.2f}s) ---")
+    print(f"{'Param':<10} {'True (Analytic)':<18} {'Calibrated (MC)':<18} {'Diff'}")
+    print("-" * 60)
     
     keys = ['kappa', 'theta', 'xi', 'rho', 'v0']
-    for i, key in enumerate(keys):
-        truth = true_params_list[i]
+    for key in keys:
+        truth = true_params[key]
         est = calibrated[key]
-        print(f"{key:<10} {truth:<10.4f} {est:<10.4f} {abs(truth - est):.4f}")
+        print(f"{key:<10} {truth:<18.4f} {est:<18.4f} {abs(truth - est):.4f}")
+
+    print("-" * 60)
+    print(f"Final SSE: {calibrated['sse']:.6f}")
+    
+    if calibrated['sse'] < 0.5:
+        print("\n>> SUCCESS: MC Engine successfully calibrated to Analytical Prices.")
+        print(">> Note: Small differences are expected due to Euler Discretization Bias.")
+        print(">> These 'Calibrated' parameters are the EFFECTIVE parameters for your MC engine.")
+    else:
+        print("\n>> WARNING: Fit is poor. Try increasing n_steps or n_paths.")
 
 if __name__ == "__main__":
     main()

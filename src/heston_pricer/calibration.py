@@ -72,53 +72,38 @@ class HestonCalibrator:
 
 class HestonCalibratorMC:
     def __init__(self, S0: float, r: float, q: float = 0.0, 
-                 n_paths: int = 20000, n_steps: int = 100):
+                 n_paths: int = 30000, n_steps: int = 100):
         self.base_env = MarketEnvironment(S0, r, q) 
         self.n_paths = n_paths
         self.n_steps = n_steps
         self.z_noise = None 
         self.options_cache = []
-        
-        # Batching attributes
-        self.max_T = 0.0
-        self.dt = 0.0
         self.time_indices = []
+        self.max_T = 0.0
 
-    def _precompute_batch_grid(self, options: List['MarketOption']):
-        """
-        Sets up the single time grid and generates the global noise matrix.
-        """
-        # 1. Determine the Simulation Horizon
+    def _precompute_batch_grid(self, options: List[MarketOption]):
+        # 1. Setup Grid
         self.max_T = max(opt.maturity for opt in options)
+        dt = self.max_T / self.n_steps
         
-        # 2. Define Time Step size based on Max T
-        # Note: All options must align to this grid.
-        self.dt = self.max_T / self.n_steps
-        
-        # 3. Map Maturities to Integer Indices
-        # e.g. if dt=0.01, T=0.5 becomes index 50
         self.time_indices = []
         for opt in options:
-            idx = int(round(opt.maturity / self.dt))
-            # Safety clamp to ensure we don't go out of bounds
-            idx = min(idx, self.n_steps)
+            idx = int(round(opt.maturity / dt))
+            idx = min(idx, self.n_steps) # Clamp
             self.time_indices.append(idx)
 
-        # 4. Generate ONE Global Noise Matrix
-        # Shape: (2, N_steps, N_paths) - Row 0: Asset, Row 1: Variance
+        # 2. Generate Global Noise
+        # Using a fixed seed ensures the optimizer sees a smooth surface
         print(f"   [System] Generating Global CRN Noise ({self.n_paths} paths, {self.n_steps} steps)...")
         np.random.seed(42) 
         self.z_noise = np.random.normal(0, 1, (2, self.n_steps, self.n_paths))
 
-    def get_prices(self, params: List[float], options: List['MarketOption']) -> List[float]:
-        """
-        Calculates prices using the Batch Method.
-        Used for both generating 'Truth' data and inspection.
-        """
+    def get_prices(self, params: List[float], options: List[MarketOption]) -> List[float]:
+        # Initialize if needed
         if self.z_noise is None:
             self._precompute_batch_grid(options)
 
-        # 1. Setup Process
+        # 1. Update Parameters
         kappa, theta, xi, rho, v0 = params
         self.process = HestonProcess(self.base_env)
         self.process.market.kappa = kappa
@@ -127,8 +112,7 @@ class HestonCalibratorMC:
         self.process.market.rho = rho
         self.process.market.v0 = v0
 
-        # 2. Run ONE Simulation (Batch)
-        # We access the process directly to bypass the Pricer overhead
+        # 2. Run ONE Batch Simulation
         paths = self.process.generate_paths(
             T=self.max_T,
             n_paths=self.n_paths,
@@ -136,28 +120,25 @@ class HestonCalibratorMC:
             noise=self.z_noise
         )
 
+        # 3. Slice and Price
         prices = []
-        
-        # 3. Vectorized Pricing (Slicing)
         for i, opt in enumerate(options):
-            # A. Extract asset prices at the specific maturity index
             idx = self.time_indices[i]
-            S_T = paths[:, idx] # Shape: (n_paths,)
+            S_T = paths[:, idx]
             
-            # B. Payoff
+            # Vectorized Payoff
             if opt.option_type == "CALL":
                 payoff = np.maximum(S_T - opt.strike, 0.0)
             else:
                 payoff = np.maximum(opt.strike - S_T, 0.0)
             
-            # C. Discount
+            # Discount
             df = np.exp(-self.process.market.r * opt.maturity)
-            price = np.mean(payoff) * df
-            prices.append(price)
+            prices.append(np.mean(payoff) * df)
             
         return prices
 
-    def calibrate(self, options: List['MarketOption'], init_guess: List[float] = None) -> Dict:
+    def calibrate(self, options: List[MarketOption], init_guess: List[float] = None) -> Dict:
         self.options_cache = options
         self._precompute_batch_grid(options)
 
@@ -169,25 +150,20 @@ class HestonCalibratorMC:
         # Constraints
         bounds = [(0.1, 10.0), (0.001, 0.5), (0.01, 2.0), (-0.99, 0.99), (0.001, 0.5)]
 
-        print(f"   [System] Starting Fast Batch Calibration...")
-        
-        # Initialize process structure once
+        print(f"   [System] Starting Fast Batch Calibration (Target: Analytical Prices)...")
         self.process = HestonProcess(self.base_env)
         
-        # L-BFGS-B Optimization
+        # Use L-BFGS-B for speed and bounds handling
         result = minimize(self.objective, x0, method='L-BFGS-B', bounds=bounds, tol=1e-5)
 
         return {
             "kappa": result.x[0], "theta": result.x[1], "xi": result.x[2],
-            "rho": result.x[3], "v0": result.x[4], "success": result.success
+            "rho": result.x[3], "v0": result.x[4], "success": result.success, "sse": result.fun
         }
 
     def objective(self, params):
-        # Reuse the batch pricing logic
         model_prices = self.get_prices(params, self.options_cache)
-        
         sse = 0.0
         for i, price in enumerate(model_prices):
             sse += (price - self.options_cache[i].market_price) ** 2
-            
         return sse
