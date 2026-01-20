@@ -1,17 +1,82 @@
 import numpy as np
 import time
-from heston_pricer.calibration import HestonCalibrator
+import json
+import pandas as pd
+from datetime import datetime
+# Ensure these imports match your actual folder structure
+from heston_pricer.calibration import HestonCalibrator, HestonCalibratorMC
 from heston_pricer.analytics import HestonAnalyticalPricer
-from fetch_data import fetch_spx_options 
+from fetch_data import fetch_options 
+
+def save_results_to_disk(ticker, S0, r, q, res_ana, res_mc, initial_guess, options, filename_prefix="calibration"):
+    """
+    Saves the calibration run to a JSON file (metadata) and CSV file (pricing data).
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_name = f"{filename_prefix}_{ticker}_{timestamp}"
+    
+    # 1. Save Metadata & Parameters (JSON)
+    metadata = {
+        "timestamp": timestamp,
+        "ticker": ticker,
+        "environment": {
+            "S0": S0,
+            "r": r,
+            "q": q
+        },
+        "initial_guess": {
+            "kappa": initial_guess[0],
+            "theta": initial_guess[1],
+            "xi": initial_guess[2],
+            "rho": initial_guess[3],
+            "v0": initial_guess[4]
+        },
+        "parameters_analytical": res_ana,
+        "parameters_mc": res_mc
+    }
+    
+    json_path = f"{base_name}_meta.json"
+    with open(json_path, "w") as f:
+        json.dump(metadata, f, indent=4)
+    print(f"\n[Saved] Parameters saved to: {json_path}")
+
+    # 2. Save Pricing Table (CSV)
+    data_rows = []
+    
+    for opt in options:
+        # Re-price using the saved Analytical params
+        p_ana = HestonAnalyticalPricer.price_european_call(
+            S0, opt.strike, opt.maturity, r, q,
+            res_ana['kappa'], res_ana['theta'], res_ana['xi'], res_ana['rho'], res_ana['v0']
+        )
+        # Re-price using the saved Monte Carlo params
+        p_mc_params = HestonAnalyticalPricer.price_european_call(
+            S0, opt.strike, opt.maturity, r, q,
+            res_mc['kappa'], res_mc['theta'], res_mc['xi'], res_mc['rho'], res_mc['v0']
+        )
+        
+        data_rows.append({
+            "Maturity": opt.maturity,
+            "Strike": opt.strike,
+            "Market_Price": opt.market_price,
+            "Model_Analytical": p_ana,
+            "Model_MC_Params": p_mc_params,
+            "Diff_Ana": p_ana - opt.market_price,
+            "Diff_MC": p_mc_params - opt.market_price
+        })
+        
+    df = pd.DataFrame(data_rows)
+    csv_path = f"{base_name}_prices.csv"
+    df.to_csv(csv_path, index=False)
+    print(f"[Saved] Pricing table saved to: {csv_path}")
 
 def main():
-    print("=== REAL MARKET CALIBRATION (SPX) ===\n")
+    print("=== FULL DUAL CALIBRATION: ANALYTICAL VS MONTE CARLO ===\n")
 
     # 1. Fetch Data
-    # We use the script you just verified.
-    # It returns a list of MarketOption objects and the Spot Price S0
     try:
-        market_options, S0 = fetch_spx_options(min_open_interest=500)
+        ticker = "TSLA"  # Switched to TSLA as requested in your snippet
+        market_options, S0 = fetch_options(ticker, max_per_bucket=5) 
     except Exception as e:
         print(f"Data Fetch Failed: {e}")
         return
@@ -20,73 +85,92 @@ def main():
         print("No data found! Aborting.")
         return
 
+    # Sort options
+    market_options.sort(key=lambda x: (x.maturity, x.strike))
+
     # 2. Market Assumptions
-    # In a real bank, these come from the IR Curve and Dividend Futures.
-    # For now, we hardcode reasonable 2026 estimates.
-    r = 0.045  # Risk-Free Rate (~4.5%)
-    q = 0.015  # Dividend Yield (~1.5%)
+    r = 0.036  # Risk-Free Rate
+    q = 0.00    # Dividend Yield (TSLA is 0.0)
     
     print(f"\n[Environment]")
     print(f"Spot (S0):   {S0:.2f}")
     print(f"Risk-Free:   {r*100:.2f}%")
     print(f"Div Yield:   {q*100:.2f}%")
-    print(f"Data Points: {len(market_options)} options")
+    print(f"Total Options to Calibrate: {len(market_options)}")
 
-    # 3. Initialize Calibrator
-    # Note: Ensure you updated HestonCalibrator to accept 'q' in step 1!
-    calibrator = HestonCalibrator(S0, r, q)
+    # 3. Initialize Calibrators
+    calibrator_ana = HestonCalibrator(S0, r, q)
+    calibrator_mc = HestonCalibratorMC(S0, r, q, n_paths=25000, n_steps=200)
     
     # Initial Guess: [kappa, theta, xi, rho, v0]
-    # We start with "standard" equity parameters.
-    initial_guess = [2.0, 0.04, 0.5, -0.7, 0.04]
+    # NOTE: Ensure this matches your bounds logic if using TSLA (High Vol)
+    initial_guess = [1.5, 0.05, 1.5, -0.4, 0.05]
     
-    print(f"\n[Calibration] Starting optimization (L-BFGS-B)...")
+    # ---------------------------------------------------------
+    # 4. Run Analytical Calibration
+    # ---------------------------------------------------------
+    print(f"\n[1/2] Analytical Calibration (Fourier) Starting...")
     t0 = time.time()
-    
-    # --- THE HEAVY LIFTING ---
-    result = calibrator.calibrate(market_options, init_guess=initial_guess)
-    
-    dt = time.time() - t0
-    print(f"Optimization completed in {dt:.2f} seconds.")
+    try:
+        res_ana = calibrator_ana.calibrate(market_options, init_guess=initial_guess)
+        print(f"Analytical finished in {time.time() - t0:.2f} seconds.")
+    except Exception as e:
+        print(f"Analytical Calibration Crashed: {e}")
+        return
 
-    # 4. Report Results
-    if result['success']:
-        print("\n>>> SUCCESS: Parameters Recovered <<<")
-    else:
-        print("\n>>> WARNING: Optimizer did not strictly converge <<<")
+    # ---------------------------------------------------------
+    # 5. Run Monte Carlo Calibration
+    # ---------------------------------------------------------
+    print(f"\n[2/2] Monte Carlo Calibration Starting...")
+    t1 = time.time()
+    try:
+        res_mc = calibrator_mc.calibrate(market_options, init_guess=initial_guess)
+        print(f"Monte Carlo finished in {time.time() - t1:.2f} seconds.")
+    except Exception as e:
+        print(f"Monte Carlo Calibration Crashed: {e}")
+        res_mc = res_ana 
 
-    print("-" * 40)
-    print(f"{'Parameter':<10} {'Value':<10} {'Interpretation'}")
-    print("-" * 40)
-    print(f"{'v0':<10} {result['v0']:<10.4f} Current Vol ~{np.sqrt(result['v0'])*100:.1f}%")
-    print(f"{'theta':<10} {result['theta']:<10.4f} Long-Run Vol ~{np.sqrt(result['theta'])*100:.1f}%")
-    print(f"{'kappa':<10} {result['kappa']:<10.4f} Mean Reversion Speed")
-    print(f"{'xi':<10} {result['xi']:<10.4f} Vol of Vol (Tails)")
-    print(f"{'rho':<10} {result['rho']:<10.4f} Skew Correlation")
-    print("-" * 40)
+    # ---------------------------------------------------------
+    # 6. Compare Parameters
+    # ---------------------------------------------------------
+    print("\n" + "="*70)
+    print(f"{'PARAMETER COMPARISON':^70}")
+    print("="*70)
+    print(f"{'Param':<10} | {'Analytical':<15} | {'Monte Carlo':<15} | {'Diff':<10}")
+    print("-" * 70)
+    
+    params = ['v0', 'theta', 'kappa', 'xi', 'rho']
+    for p in params:
+        val_ana = res_ana.get(p, 0.0)
+        val_mc = res_mc.get(p, 0.0)
+        print(f"{p:<10} | {val_ana:<15.4f} | {val_mc:<15.4f} | {abs(val_ana - val_mc):<10.4f}")
+    print("-" * 70)
 
-    # 5. Validation (Goodness of Fit)
-    print("\n[Sample Fit Check]")
-    print(f"{'Expiry':<8} {'Strike':<8} {'Market':<8} {'Model':<8} {'Error'}")
+    # ---------------------------------------------------------
+    # 7. Validation
+    # ---------------------------------------------------------
+    print("\n[Price Fit Check]")
+    print(f"{'Mat':<6} {'Strike':<8} {'Mkt Price':<10} {'ANA Model':<10} {'MC Params':<10} {'Diff'}")
+    print("-" * 80)
     
-    # Sort by maturity then strike for clean printing
-    market_options.sort(key=lambda x: (x.maturity, x.strike))
-    
-    # Pick every 7th option to show a sample
-    sample_indices = range(0, len(market_options), 7)
-    
-    sse = 0.0
-    for i in sample_indices:
-        opt = market_options[i]
-        
-        # Price using the calibrated parameters
-        model_price = HestonAnalyticalPricer.price_european_call(
-            S0, opt.strike, opt.maturity, r, q,
-            result['kappa'], result['theta'], result['xi'], result['rho'], result['v0']
-        )
-        
-        err = model_price - opt.market_price
-        print(f"{opt.maturity:<8.3f} {opt.strike:<8.0f} {opt.market_price:<8.2f} {model_price:<8.2f} {err:+.2f}")
+    step = 1 if len(market_options) < 20 else len(market_options) // 10
+    for i, opt in enumerate(market_options):
+        if i % step == 0:
+            price_ana = HestonAnalyticalPricer.price_european_call(
+                S0, opt.strike, opt.maturity, r, q,
+                res_ana['kappa'], res_ana['theta'], res_ana['xi'], res_ana['rho'], res_ana['v0']
+            )
+            price_mc_params = HestonAnalyticalPricer.price_european_call(
+                S0, opt.strike, opt.maturity, r, q,
+                res_mc['kappa'], res_mc['theta'], res_mc['xi'], res_mc['rho'], res_mc['v0']
+            )
+            print(f"{opt.maturity:<6.2f} {opt.strike:<8.0f} {opt.market_price:<10.2f} "
+                  f"{price_ana:<10.2f} {price_mc_params:<10.2f} {(price_ana - price_mc_params):+.2f}")
+
+    # ---------------------------------------------------------
+    # 8. SAVE RESULTS (With Initial Guess)
+    # ---------------------------------------------------------
+    save_results_to_disk(ticker, S0, r, q, res_ana, res_mc, initial_guess, market_options)
 
 if __name__ == "__main__":
     main()

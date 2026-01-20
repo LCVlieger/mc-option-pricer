@@ -1,5 +1,6 @@
 import numpy as np
 from numba import jit
+import math
 
 @jit(nopython=True, cache=True, fastmath=True)
 def generate_paths_kernel(S0: float, r: float, sigma: float, 
@@ -83,7 +84,6 @@ def generate_heston_paths(S0, r, v0, kappa, theta, xi, rho, T, n_paths, n_steps)
         prices[:, j + 1] = curr_s
         
     return prices
-
 
 @jit(nopython=True, cache=True, fastmath=True)
 def generate_heston_paths_crn(S0, r, v0, kappa, theta, xi, rho, T, n_paths, n_steps, noise_matrix):

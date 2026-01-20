@@ -34,11 +34,11 @@ class HestonCalibrator:
 
         # Constraints for [kappa, theta, xi, rho, v0]
         bounds = [
-            (0.1, 10.0),   # kappa: Mean reversion speed > 0
-            (0.001, 0.5),  # theta: Long run variance
-            (0.01, 2.0),   # xi: Vol of Vol
-            (-0.99, 0.99), # rho: Correlation
-            (0.001, 0.5)   # v0: Initial Variance
+            (1e-3, 10.0),    # kappa: mean reversion speed > 0
+            (1e-4, 1.0),     # theta: long-run variance (≈ 0.01–0.2 typical for equities)
+            (1e-3, 5.0),     # xi (sigma): vol of vol
+            (-0.999, 0.999),# rho: correlation (avoid ±1 exactly)
+            (1e-4, 1.0)      # v0: initial variance
         ]
 
         # Objective Function (Sum of Squared Errors)
@@ -148,7 +148,13 @@ class HestonCalibratorMC:
             x0 = init_guess
 
         # Constraints
-        bounds = [(0.1, 10.0), (0.001, 0.5), (0.01, 2.0), (-0.99, 0.99), (0.001, 0.5)]
+        bounds = [
+        (0.1, 5.0),    # kappa
+        (0.01, 0.2),   # theta
+        (0.05, 2),   # xi (Limited for Euler stability)
+        (-0.95, 0.0),  # rho
+        (0.01, 0.2)    # v0
+        ]
 
         print(f"   [System] Starting Fast Batch Calibration (Target: Analytical Prices)...")
         self.process = HestonProcess(self.base_env)

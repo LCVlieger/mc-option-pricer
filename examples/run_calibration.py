@@ -36,7 +36,7 @@ def main():
     
     # Note: n_steps=100 is decent. 
     # If the error is high, increase n_steps to 200 to reduce Euler bias.
-    calibrator = HestonCalibratorMC(S0, r, q, n_paths=30000, n_steps=100)
+    calibrator = HestonCalibratorMC(S0, r, q, n_paths=10000, n_steps=100)
     
     guess = [0.5, 0.02, 0.1, 0.0, 0.02]
     print(f"Initial Guess: {guess}")

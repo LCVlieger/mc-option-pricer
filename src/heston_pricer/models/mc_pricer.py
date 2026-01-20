@@ -74,7 +74,7 @@ class MonteCarloPricer:
         
         # 4. Cleanup: Restore the original market to the process
         self.process.market = original_market
-
+        
         # Finite Differences Calculation
         delta = (res_up.price - res_down.price) / (2 * epsilon)
         gamma = (res_up.price - 2 * res_curr.price + res_down.price) / (epsilon ** 2)
