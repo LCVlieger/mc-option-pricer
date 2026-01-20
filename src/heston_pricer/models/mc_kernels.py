@@ -83,3 +83,47 @@ def generate_heston_paths(S0, r, v0, kappa, theta, xi, rho, T, n_paths, n_steps)
         prices[:, j + 1] = curr_s
         
     return prices
+
+
+@jit(nopython=True, cache=True, fastmath=True)
+def generate_heston_paths_crn(S0, r, v0, kappa, theta, xi, rho, T, n_paths, n_steps, noise_matrix):
+    """
+    Heston Simulation using Common Random Numbers (CRN).
+    noise_matrix shape: (2, n_steps, n_paths)
+    """
+    dt = T / n_steps
+    sqrt_dt = np.sqrt(dt)
+    
+    c1 = rho
+    c2 = np.sqrt(1 - rho**2)
+    
+    # Output arrays
+    prices = np.zeros((n_paths, n_steps + 1))
+    prices[:, 0] = S0
+    
+    curr_v = np.full(n_paths, v0, dtype=np.float64)
+    curr_s = np.full(n_paths, S0, dtype=np.float64)
+    
+    for j in range(n_steps):
+        # EXTRACT FROZEN NOISE instead of generating new randoms
+        # Row 0: Asset Noise (Z1), Row 1: Variance Noise (Z2)
+        Z1 = noise_matrix[0, j]
+        Z2 = noise_matrix[1, j]
+        
+        # Correlate
+        Zv = c1 * Z1 + c2 * Z2
+        
+        # Volatility Update (Full Truncation)
+        v_positive = np.maximum(curr_v, 0.0)
+        dv = kappa * (theta - v_positive) * dt + xi * np.sqrt(v_positive) * sqrt_dt * Zv
+        curr_v = curr_v + dv
+        
+        # Stock Update
+        vol_t = np.sqrt(v_positive)
+        drift = (r - 0.5 * v_positive) * dt
+        diffusion = vol_t * sqrt_dt * Z1
+        
+        curr_s = curr_s * np.exp(drift + diffusion)
+        prices[:, j + 1] = curr_s
+        
+    return prices

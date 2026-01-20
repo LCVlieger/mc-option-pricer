@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import numpy as np
 from ..market import MarketEnvironment
-from .mc_kernels import generate_paths_kernel, generate_heston_paths
+from .mc_kernels import generate_paths_kernel, generate_heston_paths, generate_heston_paths_crn
 
 class StochasticProcess(ABC):
     """
@@ -28,8 +28,24 @@ class BlackScholesProcess(StochasticProcess):
         )
 
 class HestonProcess(StochasticProcess):
-    def generate_paths(self, T: float, n_paths: int, n_steps: int) -> np.ndarray:
-        # Map class attributes to the Heston kernel
+    def generate_paths(self, T: float, n_paths: int, n_steps: int, noise=None) -> np.ndarray:
+        # If noise is provided, use the CRN kernel
+        if noise is not None:
+            return generate_heston_paths_crn(
+                self.market.S0,
+                self.market.r,
+                self.market.v0,
+                self.market.kappa,
+                self.market.theta,
+                self.market.xi,
+                self.market.rho,
+                T,
+                n_paths,
+                n_steps,
+                noise  # <--- Inject Noise
+            )
+        
+        # Default behavior (Random)
         return generate_heston_paths(
             self.market.S0,
             self.market.r,

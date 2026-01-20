@@ -15,9 +15,9 @@ class MonteCarloPricer:
         # The Pricer now owns a Process (which owns the Market)
         self.process = process
 
-    def price(self, option: Option, n_paths: int = 10000, n_steps: int = 100) -> PricingResult:
-        # 1. Delegate path generation to the Process
-        paths = self.process.generate_paths(option.T, n_paths, n_steps)
+    def price(self, option: Option, n_paths: int = 10000, n_steps: int = 100, **kwargs) -> PricingResult:
+        # Pass kwargs (like 'noise') down to generate_paths
+        paths = self.process.generate_paths(option.T, n_paths, n_steps, **kwargs)
         
         # 2. Compute Payoffs
         payoffs = option.payoff(paths)
