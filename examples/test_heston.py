@@ -6,6 +6,7 @@ def main():
     # 1. Parameters
     S0 = 100.0
     r = 0.05
+    q = 0.0
     T = 1.0
     n_paths = 50_000
     n_steps = 100
@@ -21,12 +22,12 @@ def main():
     
     # 2. Warmup JIT
     print("Compiling...")
-    _ = generate_heston_paths(S0, r, v0, kappa, theta, xi, rho, T, 10, 10)
+    _ = generate_heston_paths(S0, r, q, v0, kappa, theta, xi, rho, T, 10, 10)
     print("Compilation Complete.")
     
     # 3. Run Simulation
     t0 = time.time()
-    paths = generate_heston_paths(S0, r, v0, kappa, theta, xi, rho, T, n_paths, n_steps)
+    paths = generate_heston_paths(S0, r, q, v0, kappa, theta, xi, rho, T, n_paths, n_steps)
     dt = time.time() - t0
     
     S_T = paths[:, -1]

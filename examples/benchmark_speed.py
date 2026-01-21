@@ -43,6 +43,7 @@ def numpy_vectorized_mc(S0, r, sigma, T, n_paths, n_steps):
 
 def main():
     S0, r, sigma, T = 100, 0.05, 0.2, 1.0
+    q = 0.0
     n_paths = 50_000  # Lower paths to keep Pure Python from freezing
     n_steps = 100
 
@@ -65,10 +66,10 @@ def main():
     # 3. Numba
     print("\n3. Numba (Optimized)...")
     # Warmup
-    numba_kernel(S0, r, sigma, T, 10, n_steps)
+    numba_kernel(S0, r, q, sigma, T, 10, n_steps)
     
     t0 = time.time()
-    numba_kernel(S0, r, sigma, T, n_paths, n_steps)
+    numba_kernel(S0, r, q, sigma, T, n_paths, n_steps)
     t_numba = time.time() - t0
     print(f"   Time: {t_numba:.4f}s (Speedup vs Base: {t_base/t_numba:.1f}x)")
     

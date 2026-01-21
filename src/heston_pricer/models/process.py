@@ -17,11 +17,11 @@ class StochasticProcess(ABC):
 
 class BlackScholesProcess(StochasticProcess):
     def generate_paths(self, T: float, n_paths: int, n_steps: int) -> np.ndarray:
-        # Map class attributes to the Numba kernel arguments
         return generate_paths_kernel(
             self.market.S0,
             self.market.r,
-            self.market.sigma, # Uses sigma from market
+            self.market.q,  # <--- PASS q
+            self.market.sigma,
             T,
             n_paths,
             n_steps
@@ -29,11 +29,11 @@ class BlackScholesProcess(StochasticProcess):
 
 class HestonProcess(StochasticProcess):
     def generate_paths(self, T: float, n_paths: int, n_steps: int, noise=None) -> np.ndarray:
-        # If noise is provided, use the CRN kernel
         if noise is not None:
             return generate_heston_paths_crn(
                 self.market.S0,
                 self.market.r,
+                self.market.q,  # <--- PASS q
                 self.market.v0,
                 self.market.kappa,
                 self.market.theta,
@@ -42,13 +42,13 @@ class HestonProcess(StochasticProcess):
                 T,
                 n_paths,
                 n_steps,
-                noise  # <--- Inject Noise
+                noise
             )
         
-        # Default behavior (Random)
         return generate_heston_paths(
             self.market.S0,
             self.market.r,
+            self.market.q,  # <--- PASS q
             self.market.v0,
             self.market.kappa,
             self.market.theta,

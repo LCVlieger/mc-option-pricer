@@ -75,7 +75,7 @@ def main():
 
     # 1. Fetch Data
     try:
-        ticker = "COST"  # Switched to TSLA as requested in your snippet
+        ticker = "NVDA"  # Switched to TSLA as requested in your snippet
         market_options, S0 = fetch_options(ticker, max_per_bucket=6) 
     except Exception as e:
         print(f"Data Fetch Failed: {e}")
@@ -90,7 +90,7 @@ def main():
 
     # 2. Market Assumptions
     r = 0.043     # Risk-Free Rate
-    q = 0.005    # Dividend Yield (TSLA is 0.0)
+    q = 0.0003   # Dividend Yield (TSLA is 0.0)
     
     print(f"\n[Environment]")
     print(f"Spot (S0):   {S0:.2f}")

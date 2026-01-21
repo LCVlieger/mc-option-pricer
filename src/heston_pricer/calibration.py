@@ -31,7 +31,7 @@ class HestonCalibrator:
 
         # Bounds
         bounds = [
-            (0.5, 5.0),    # kappa: LOWER BOUND 0.5. Forces the model to actually mean-revert.
+            (0.5, 7.5),    # kappa: LOWER BOUND 0.5. Forces the model to actually mean-revert.
                             # This prevents the "theta explosion" hack.
             
             (0.001, 2.0),   # theta: UPPER BOUND 2.0 (140% Vol). 
@@ -200,7 +200,7 @@ class HestonCalibratorMC:
             x0 = init_guess
 
         bounds = [
-            (0.5, 5.0),    # kappa
+            (0.5, 7.5),    # kappa
             (0.001, 2.0),   # theta
             (0.01, 3),    # xi
             (-0.999, 0),    # rho
