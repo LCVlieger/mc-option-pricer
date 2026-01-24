@@ -1,8 +1,3 @@
-I understand the issue now. The problem is that the `README.md` itself contains code blocks (using 3 backticks), which breaks the chat's display when I try to wrap it in a standard code block.
-
-Here is the **raw content** wrapped in a way that preserves the inner code blocks. You can copy everything between the lines.
-
-```text
 # HestonPricer: High-Performance Stochastic Volatility Engine
 
 **A JIT-compiled pricing and calibration library for Exotic Derivatives, bridging the gap between mathematical theory (Shreve/Hull) and production engineering.**
