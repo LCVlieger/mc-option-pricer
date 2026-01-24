@@ -2,7 +2,7 @@
 
 **A JIT-compiled pricing and calibration library for Exotic Derivatives, bridging the gap between mathematical theory (Shreve/Hull) and production engineering.**
 
-## 🚀 Key Capabilities
+## Key Capabilities
 
 * **Real-Time Calibration**: Solves the inverse problem for Heston parameters ($\kappa, \theta, \xi, \rho, v_0$) using **L-BFGS-B** optimization against live option chains (e.g., NVDA, TSLA).
 * **HPC Architecture**: Python loops are replaced with **Numba** kernels (LLVM compilation), achieving a **~16x speedup** over Pure Python and **2.5x speedup** over vectorized NumPy by eliminating memory overhead.
@@ -12,7 +12,7 @@
 
 ---
 
-## 📊 Case Study: NVIDIA (NVDA) Down-and-Out Call
+## Case Study: NVIDIA (NVDA) Down-and-Out Call
 
 **Calibration Date:** Jan 24, 2026
 * **Regime:** High Mean Reversion ($\kappa \approx 4.8$), Negative Skew ($\rho \approx -0.46$).
@@ -21,7 +21,7 @@
 
 ---
 
-## ⚡ Performance Benchmarks
+## Performance Benchmarks
 
 *Hardware: Standard Consumer Laptop (Python 3.12)*
 *Simulation: 2,000,000 Paths, 252 Steps (Daily Monitoring)*
@@ -36,7 +36,7 @@
 
 ---
 
-## 🛠️ Usage
+## Usage
 
 ### 1. Market Calibration (The "Strat" View)
 Fetches live option chains, filters for liquidity, and performs a dual-phase calibration (Analytical Fourier → Monte Carlo refinement).
