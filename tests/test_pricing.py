@@ -12,7 +12,7 @@ def default_market():
 
 def test_european_call_convergence(default_market):
     """
-    Verifies Monte Carlo (BS Mode) converges to exact Black-Scholes price.
+    Verify Monte Carlo black scholes converges to analytical Black-Scholes price.
     """
     T, K = 1.0, 100
     option = EuropeanOption(K=K, T=T, option_type=OptionType.CALL)
@@ -30,7 +30,7 @@ def test_european_call_convergence(default_market):
 
 def test_asian_call_approximation(default_market):
     """
-    Verifies Monte Carlo aligns with Turnbull-Wakeman approximation.
+    Verify Monte Carlo asian option price aligns with Turnbull-Wakeman approximation.
     """
     T, K = 1.0, 100
     option = AsianOption(K=K, T=T, option_type=OptionType.CALL)

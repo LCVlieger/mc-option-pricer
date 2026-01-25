@@ -21,16 +21,12 @@ class BlackScholesProcess(StochasticProcess):
 
 class HestonProcess(StochasticProcess):
     def generate_paths(self, T: float, n_paths: int, n_steps: int, noise=None) -> np.ndarray:
-        # Common params unpacking
         args = (
             self.market.S0, self.market.r, self.market.q,
             self.market.v0, self.market.kappa, self.market.theta,
             self.market.xi, self.market.rho, T, n_paths, n_steps
         )
-
+        # common random numbers 
         if noise is not None:
-            # Calibration Mode (CRN)
             return generate_heston_paths_crn(*args, noise)
-        
-        # Pricing Mode (Standard Euler)
         return generate_heston_paths(*args)

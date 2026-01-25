@@ -23,9 +23,6 @@ class EuropeanOption(Option):
         return np.maximum(phi * (S_T - self.K), 0)
     
 class AsianOption(Option):
-    """
-    Arithmetic Asian Option (Payoff on arithmetic mean).
-    """
     def payoff(self, prices: np.ndarray) -> np.ndarray:
         # Average across time steps (excluding t=0)
         average_price = np.mean(prices[:, 1:], axis=1)
@@ -52,7 +49,7 @@ class BarrierOption(Option):
         path_min = np.min(prices, axis=1)
         path_max = np.max(prices, axis=1)
         
-        # Apply barrier conditions via boolean masking
+        # Barrier conditions below
         if self.barrier_type == BarrierType.DOWN_AND_OUT:
             active_mask = path_min > self.barrier
             return intrinsic_payoff * active_mask

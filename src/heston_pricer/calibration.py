@@ -14,21 +14,6 @@ class MarketOption:
     market_price: float
     option_type: str = "CALL" 
 
-def implied_volatility(price: float, S: float, K: float, T: float, r: float, q: float) -> float:
-    if price <= 0: return 0.0
-    intrinsic = max(S * np.exp(-q*T) - K * np.exp(-r*T), 0)
-    if price < intrinsic: return 0.0
-
-    def bs_price(sigma):
-        d1 = (np.log(S / K) + (r - q + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
-        d2 = d1 - sigma * np.sqrt(T)
-        val = (S * np.exp(-q * T) * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2))
-        return val - price
-    
-    try:
-        return brentq(bs_price, 0.001, 5.0)
-    except:
-        return 0.0
 
 class HestonCalibrator:
     def __init__(self, S0: float, r: float, q: float = 0.0):
@@ -174,3 +159,19 @@ class HestonCalibratorMC:
             "rho": result.x[3], "v0": result.x[4], 
             "success": result.success, "rmse_iv": np.sqrt(sse_iv / count) if count > 0 else 0.0
         }
+    
+def implied_volatility(price: float, S: float, K: float, T: float, r: float, q: float) -> float:
+    if price <= 0: return 0.0
+    intrinsic = max(S * np.exp(-q*T) - K * np.exp(-r*T), 0)
+    if price < intrinsic: return 0.0
+
+    def bs_price(sigma):
+        d1 = (np.log(S / K) + (r - q + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+        d2 = d1 - sigma * np.sqrt(T)
+        val = (S * np.exp(-q * T) * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2))
+        return val - price
+    
+    try:
+        return brentq(bs_price, 0.001, 5.0)
+    except:
+        return 0.0

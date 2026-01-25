@@ -7,7 +7,7 @@ from numba import jit
 def generate_paths_kernel(S0: float, r: float, q: float, sigma: float, 
                           T: float, n_paths: int, n_steps: int) -> np.ndarray:
     """
-    Standard Geometric Brownian Motion (Black-Scholes) kernel with Antithetic Sampling.
+    Classical GBM Black-Scholes kernel. Includes Antithetic Sampling.
     """
     dt = T / n_steps
     half_paths = n_paths // 2
@@ -33,8 +33,8 @@ def generate_paths_kernel(S0: float, r: float, q: float, sigma: float,
 @jit(nopython=True, cache=True, fastmath=True)
 def generate_heston_paths(S0, r, q, v0, kappa, theta, xi, rho, T, n_paths, n_steps):
     """
-    Heston Model simulation using Full Truncation Euler discretization.
-    Ref: Lord, R., Koekkoek, R., & Van Dijk, D. (2010). "A comparison of biased simulation schemes..."
+    Heston Model simulation using a truncated Euler discretization (v_i+ = max(0,v_i)) ('Full truncation').
+    Reference: 'The Volatility Surface: A Practitioners Guide, Jim Gatheral, CH2 p.21. "
     """
     dt = T / n_steps
     sqrt_dt = np.sqrt(dt)
@@ -51,8 +51,7 @@ def generate_heston_paths(S0, r, q, v0, kappa, theta, xi, rho, T, n_paths, n_ste
         Z2 = np.random.standard_normal(n_paths)
         Zv = c1 * Z1 + c2 * Z2
         
-        # Full Truncation: Treat negative variance as 0 in drift/diffusion, 
-        # but update the underlying process normally.
+
         v_pos = np.maximum(curr_v, 0.0)
         curr_v += kappa * (theta - v_pos) * dt + xi * np.sqrt(v_pos) * sqrt_dt * Zv
         
@@ -65,8 +64,8 @@ def generate_heston_paths(S0, r, q, v0, kappa, theta, xi, rho, T, n_paths, n_ste
 @jit(nopython=True, cache=True, fastmath=True)
 def generate_heston_paths_crn(S0, r, q, v0, kappa, theta, xi, rho, T, n_paths, n_steps, noise_matrix):
     """
-    Calibration-specific kernel supporting Common Random Numbers (CRN).
-    Accepts pre-generated noise matrix to guarantee gradient stability.
+    Kernel for calibration using 'Common Random Numbers' (CRN). Pre-generates noise matrix. 
+    This is needed for stability during the optimization. 
     """
     dt = T / n_steps
     sqrt_dt = np.sqrt(dt)

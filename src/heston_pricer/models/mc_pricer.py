@@ -32,34 +32,33 @@ class MonteCarloPricer:
 
     def compute_greeks(self, option: Option, n_paths: int = 10000, n_steps: int = 252, bump_ratio: float = 0.01, seed: int = 42) -> Dict[str, float]:
         """
-        Computes Greeks using Finite Difference with Common Random Numbers (CRN).
+        Computes Greeks using finite differences. Is implemented with Common Random Numbers (CRN).
         """
         original_market = self.process.market
         original_S0 = original_market.S0
         epsilon_s = original_S0 * bump_ratio
         epsilon_v = 0.001 
         
-        # Pre-generate noise for CRN variance reduction
+        # Pre-generate noise for the CRN. 
         rng = np.random.default_rng(seed)
         Z_CRN = rng.standard_normal((2, n_steps, n_paths))
         
-        # Base Price
+        # the price
         res_curr = self.price(option, n_paths, n_steps, noise=Z_CRN)
         
-        # Delta & Gamma (Spot Bumps)
+        # The delta and Gamma.   
         self.process.market = replace(original_market, S0 = original_S0 + epsilon_s)
         res_up = self.price(option, n_paths, n_steps, noise=Z_CRN)
         
         self.process.market = replace(original_market, S0 = original_S0 - epsilon_s)
         res_down = self.price(option, n_paths, n_steps, noise=Z_CRN)
         
-        # Vega (Vol Bump)
+        # Vega computation. 
         self.process.market = replace(original_market, v0 = original_market.v0 + epsilon_v, S0=original_S0)
         res_vega = self.price(option, n_paths, n_steps, noise=Z_CRN)
-        
-        # Restore Market State
+        # restore market back. 
         self.process.market = original_market
-        
+
         delta = (res_up.price - res_down.price) / (2 * epsilon_s)
         gamma = (res_up.price - 2 * res_curr.price + res_down.price) / (epsilon_s ** 2)
         vega = (res_vega.price - res_curr.price) / epsilon_v

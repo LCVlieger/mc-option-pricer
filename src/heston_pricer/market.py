@@ -4,9 +4,9 @@ from dataclasses import dataclass
 class MarketEnvironment:
     S0: float          # Spot Price
     r: float           # Risk-free Rate
-    q: float = 0.0     # Dividend Yield (Default 0 for backward compatibility)
-    sigma: float = 0.2 # for Black-Scholes
-    
+    q: float = 0.0     # Dividend Yield 
+    sigma: float = 0.2 # Volatility (Black-Scholes)
+     
     # Heston Parameters
     v0: float = 0.04
     kappa: float = 1.0

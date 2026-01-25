@@ -12,10 +12,11 @@ class BlackScholesPricer:
     @staticmethod
     def price_asian_arithmetic_approximation(S0, K, T, r, sigma):
         """
-        Turnbull-Wakeman (1991) Approximation for Arithmetic Asian Options.
-        Matches the first two moments of the arithmetic average to a Lognormal distribution.
+        Turnbull-Wakeman (1991) approximation for arithmetic Asian options (ref: Hull CH26.13, p.626).
+        Validates Monte Carlo priced asian options under GBM paths. 
+        Matches the first two moments of the arithmetic average to a Lognormal distribution. 
         """
-        # 1. Exact Moments of the Arithmetic Average (Continuous sampling)
+        # 1. Moments of the arithmetic average 
         if abs(r) < 1e-6:
             M1 = S0
             M2 = S0**2 * (2 * np.exp(sigma**2 * T) - 1)
@@ -29,13 +30,12 @@ class BlackScholesPricer:
             )
             M2 = S0**2 * (term1 + term2)
 
-        # 2. Edgeworth Expansion / Lognormal Match
+        # 2. Match lognormal
         # v_eff^2 = ln(E[A^2] / E[A]^2)
         if M2 <= M1**2: return 0.0
             
+        # 3. Pricing 
         sigma_eff = np.sqrt(np.log(M2 / M1**2) / T)
-        
-        # 3. Price as an option on a Futures contract F = M1
         d1 = (np.log(M1 / K) + 0.5 * sigma_eff**2 * T) / (sigma_eff * np.sqrt(T))
         d2 = d1 - sigma_eff * np.sqrt(T)
         
@@ -43,8 +43,8 @@ class BlackScholesPricer:
     
 class HestonAnalyticalPricer:
     """
-    Fourier Cosine / Gil-Pelaez inversion for Heston European Pricing.
-    Supports continuous dividend yield (q).
+    Semi-analytic Heston European Pricing. ('The Volatility Surface: A Practitioners Guide, Jim Gatheral, CH2 p.16-18'). 
+    (todo)
     """
     @staticmethod
     def price_european_call(S0, K, T, r, q, kappa, theta, xi, rho, v0):
@@ -59,12 +59,12 @@ class HestonAnalyticalPricer:
             D = (kappa * theta / xi**2) * \
                 ((kappa - rho * xi * u * 1j - d) * T - 2 * np.log((1 - g * np.exp(-d * T)) / (1 - g)))
             
-            # Log-forward adjustment for dividends
+            # dividend adjustment 
             drift_term = 1j * u * np.log(S0 * np.exp((r - q) * T))
             
             return np.exp(C * v0 + D + drift_term)
 
-        # Integration (Gil-Pelaez, 1951)
+        # Integration 
         limit = 200 
         
         def integrand_p1(u):

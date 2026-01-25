@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import List, Tuple
 from .calibration import MarketOption
 
+# fetch real-time options using yahoo finance. 
+
 def fetch_options(ticker_symbol: str, max_per_bucket: int = 6) -> Tuple[List[MarketOption], float]:
     """
     Fetches option chain and selects a balanced sample across Short, Medium, and Long maturities.
@@ -20,14 +22,14 @@ def fetch_options(ticker_symbol: str, max_per_bucket: int = 6) -> Tuple[List[Mar
         print(f"Error fetching spot price: {e}")
         return [], 0.0
 
-    # Bucket configuration to capture volatility surface structure
+    # Obtain different maturities to capture volatility surface 
     buckets = {
         "Short":  {'min': 0.10, 'max': 0.40, 'count': 0},  # ~1-5 months
         "Medium": {'min': 0.40, 'max': 1.00, 'count': 0},  # ~5-12 months
         "Long":   {'min': 1.00, 'max': 2.50, 'count': 0}   # ~1-2.5 years
     }
     
-    # Target 10% OTM/ITM range
+    # Obtain ITM and OTM options (10% target).  
     target_moneyness = [0.90, 0.95, 1.00, 1.05, 1.10]
     market_options = []
     
