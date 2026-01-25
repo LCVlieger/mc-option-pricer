@@ -43,7 +43,7 @@ def save_results(ticker, S0, res_ana, res_mc, options):
     log(f"Artifacts: {base_name}_meta.json")
 
 
-# calibration to market prices.  
+# calibrate  to market prices.  
 def main():
     clear_numba_cache()
     ticker = "NVDA" 
