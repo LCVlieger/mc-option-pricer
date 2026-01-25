@@ -1,5 +1,7 @@
 import time
 import json
+import os
+import shutil
 import pandas as pd
 import numpy as np
 import yfinance as yf
@@ -9,229 +11,211 @@ from typing import List, Tuple, Dict
 from heston_pricer.calibration import HestonCalibrator, HestonCalibratorMC, MarketOption
 from heston_pricer.analytics import HestonAnalyticalPricer
 
+# --- 0. SYSTEM: CLEAR CACHE AUTOMATICALLY ---
+# Forces Numba to pick up any kernel changes immediately
+for root, dirs, files in os.walk("src"):
+    for d in dirs:
+        if d == "__pycache__":
+            shutil.rmtree(os.path.join(root, d), ignore_errors=True)
+
 # ==========================================
-# 1. HELPER: DATA FETCHING (Consolidated)
+# 1. ROBUST DATA FETCHING (SMART BUCKETS)
 # ==========================================
-def fetch_options(ticker: str, max_per_bucket: int = 5) -> Tuple[List[MarketOption], float]:
+def fetch_options(ticker_symbol: str, max_per_bucket: int = 6) -> Tuple[List[MarketOption], float]:
     """
-    Fetches live option chain from Yahoo Finance, filters for liquidity/moneyness,
-    and returns a clean list of MarketOption objects.
+    Fetches option chain and selects a balanced sample across Short, Medium, and Long maturities.
     """
+    ticker = yf.Ticker(ticker_symbol)
+    
+    # A. Get Spot Price
     try:
-        stock = yf.Ticker(ticker)
-        # Get Spot Price (try fast history first)
-        hist = stock.history(period="1d")
-        if hist.empty:
-            print(f"   [Data] Error: Could not fetch spot price for {ticker}")
-            return [], 0.0
-        current_price = hist['Close'].iloc[-1]
+        S0 = ticker.fast_info.get('last_price', None)
+        if S0 is None:
+            hist = ticker.history(period="1d")
+            if hist.empty: raise ValueError("No price data")
+            S0 = hist['Close'].iloc[-1]
     except Exception as e:
-        print(f"   [Data] Connection Error: {e}")
+        print(f"[Error] Failed to fetch spot: {e}")
         return [], 0.0
 
-    expirations = stock.options
-    if not expirations:
-        print(f"   [Data] Error: No option chains found for {ticker}")
-        return [], 0.0
-
-    # Select expirations: Skip very near term (<14 days), take next 3 months
-    target_expirations = []
-    for exp in expirations:
-        days = (datetime.strptime(exp, "%Y-%m-%d") - datetime.now()).days
-        if 14 < days < 300:
-            target_expirations.append(exp)
-        if len(target_expirations) >= 3: break
-    
-    all_options = []
-    print(f"   [Data] Processing chains: {target_expirations}")
-    
-    for exp_date in target_expirations:
-        try:
-            chain = stock.option_chain(exp_date).calls
-            
-            # 1. Liquidity Filter
-            chain = chain[
-                (chain['volume'] > 10) & 
-                (chain['openInterest'] > 50) & 
-                (chain['bid'] > 0.50)
-            ].copy()
-            
-            # 2. Moneyness Filter (0.85 < K/S < 1.15)
-            chain = chain[
-                (chain['strike'] > current_price * 0.85) & 
-                (chain['strike'] < current_price * 1.15)
-            ]
-
-            # 3. Sampling (Avoid overloading the MC calibrator)
-            if len(chain) > max_per_bucket:
-                # Take equidistant samples (e.g., every Nth item)
-                indices = np.linspace(0, len(chain)-1, max_per_bucket, dtype=int)
-                chain = chain.iloc[indices]
-
-            # 4. Convert to MarketOption
-            T = (datetime.strptime(exp_date, "%Y-%m-%d") - datetime.now()).days / 365.0
-            
-            for _, row in chain.iterrows():
-                mid_price = (row['bid'] + row['ask']) / 2
-                all_options.append(MarketOption(
-                    strike=row['strike'],
-                    maturity=T,
-                    market_price=mid_price,
-                    option_type="CALL"
-                ))
-        except Exception:
-            continue
-
-    return all_options, current_price
-
-# ==========================================
-# 2. HELPER: SAVE RESULTS
-# ==========================================
-def save_results_to_disk(ticker, S0, r, q, res_ana, res_mc, initial_guess, options, filename_prefix="calibration"):
-    """
-    Saves calibration metadata (JSON) and a detailed pricing comparison (CSV).
-    """
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    base_name = f"{filename_prefix}_{ticker}_{timestamp}"
-    
-    # A. JSON Metadata
-    metadata = {
-        "timestamp": timestamp,
-        "ticker": ticker,
-        "market": {"S0": S0, "r": r, "q": q},
-        "initial_guess": initial_guess,
-        "analytical_results": res_ana,
-        "monte_carlo_results": res_mc
+    # B. Setup Buckets (To ensure we get the full volatility surface)
+    # T > 0.10 filters out short-term gamma noise (options expiring in < 1 month)
+    buckets = {
+        "Short":  {'min': 0.10, 'max': 0.40, 'count': 0},  # ~1-5 months
+        "Medium": {'min': 0.40, 'max': 1.00, 'count': 0},  # ~5-12 months
+        "Long":   {'min': 1.00, 'max': 2.50, 'count': 0}   # ~1-2.5 years
     }
     
-    json_path = f"{base_name}_meta.json"
-    with open(json_path, "w") as f:
-        json.dump(metadata, f, indent=4)
-    print(f"\n[Saved] Metadata: {json_path}")
+    # Strikes: roughly 10% OTM/ITM
+    target_moneyness = [0.90, 0.95, 1.00, 1.05, 1.10]
+    market_options = []
+    
+    print(f"[Data] Scanning chains for {ticker_symbol} (Spot: {S0:.2f})...")
+    expirations = ticker.options
+    if not expirations: return [], 0.0
 
-    # B. CSV Pricing Table
-    data_rows = []
-    for opt in options:
-        # Reprice using both parameter sets
-        p_ana = HestonAnalyticalPricer.price_european_call(
-            S0, opt.strike, opt.maturity, r, q,
-            res_ana['kappa'], res_ana['theta'], res_ana['xi'], res_ana['rho'], res_ana['v0']
-        )
-        p_mc = HestonAnalyticalPricer.price_european_call(
-            S0, opt.strike, opt.maturity, r, q,
-            res_mc['kappa'], res_mc['theta'], res_mc['xi'], res_mc['rho'], res_mc['v0']
-        )
+    for exp_str in expirations:
+        # Stop if we have enough total data
+        if len(market_options) > 60: break
+
+        try:
+            exp_date = datetime.strptime(exp_str, "%Y-%m-%d")
+            T = (exp_date - datetime.now()).days / 365.25
+        except: continue
         
-        data_rows.append({
-            "Maturity": round(opt.maturity, 4),
-            "Strike": opt.strike,
-            "Market_Price": opt.market_price,
-            "Model_Ana": round(p_ana, 3),
-            "Model_MC": round(p_mc, 3),
-            "Diff_Ana": round(p_ana - opt.market_price, 3),
-            "Diff_MC": round(p_mc - opt.market_price, 3)
+        # Check if this expiration fits into an unfilled bucket
+        target_bucket = next((name for name, b in buckets.items() 
+                              if b['min'] <= T <= b['max'] and b['count'] < max_per_bucket), None)
+        if not target_bucket: continue
+
+        # Fetch Chain
+        try:
+            calls = ticker.option_chain(exp_str).calls
+        except: continue
+        if calls.empty: continue
+
+        # Filter roughly around ATM to reduce processing
+        calls = calls[(calls['strike'] > S0 * 0.75) & (calls['strike'] < S0 * 1.35)]
+        
+        # Select specific strikes
+        selected_indices = set()
+        for m in target_moneyness:
+            target_strike = S0 * m
+            calls['dist'] = (calls['strike'] - target_strike).abs()
+            if calls.empty: continue
+            
+            best_idx = calls['dist'].idxmin()
+            # Only pick if close to target moneyness (within 2.5%)
+            if calls.loc[best_idx, 'dist'] / S0 < 0.025:
+                selected_indices.add(best_idx)
+
+        # Add selected options
+        for idx in selected_indices:
+            if buckets[target_bucket]['count'] >= max_per_bucket: break
+            
+            row = calls.loc[idx]
+            price = row['lastPrice'] 
+            
+            # Sanity Checks: Price > 0.05 and No Arbitrage (Price < Intrinsic)
+            if price < 0.05: continue
+            if price < (max(S0 - row['strike'], 0) - 0.5): continue 
+
+            market_options.append(MarketOption(
+                strike=float(row['strike']),
+                maturity=float(T),
+                market_price=float(price),
+                option_type="CALL"
+            ))
+            buckets[target_bucket]['count'] += 1
+
+    print(f"   -> Found: Short={buckets['Short']['count']}, Med={buckets['Medium']['count']}, Long={buckets['Long']['count']}")
+    return market_options, S0
+
+# ==========================================
+# 2. SAVE RESULTS & GENERATE REPORT
+# ==========================================
+def save_results(ticker, S0, res_ana, res_mc, options):
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_name = f"calibration_{ticker}_{timestamp}"
+    
+    # 1. Save Metadata (JSON)
+    # Stores the calibrated parameters for later use (e.g. Exotic Pricing)
+    with open(f"{base_name}_meta.json", "w") as f: 
+        json.dump({
+            "market": {"S0": S0, "r": 0.045, "q": 0.003}, 
+            "analytical": res_ana, 
+            "monte_carlo_results": res_mc # Key used by exotic_pricing.py
+        }, f, indent=4)
+
+    # 2. Save Pricing Error Table (CSV)
+    print("\n" + "="*80)
+    print(f"{'PRICING ERRORS (Validation)':^80}")
+    print("="*80)
+    print(f"{'Mat':<6} {'Strike':<8} {'Market':<8} | {'Ana':<8} {'Diff':<6} | {'Euler':<8} {'Diff':<6}")
+    print("-" * 80)
+
+    rows = []
+    # Helper to unpack parameters
+    def gp(r): return [r.get(k, 0) for k in ['kappa', 'theta', 'xi', 'rho', 'v0']]
+    
+    for i, opt in enumerate(options):
+        # Reprice using Analytical Engine to validate parameter fit
+        p_ana = HestonAnalyticalPricer.price_european_call(S0, opt.strike, opt.maturity, 0.045, 0.003, *gp(res_ana))
+        p_mc = HestonAnalyticalPricer.price_european_call(S0, opt.strike, opt.maturity, 0.045, 0.003, *gp(res_mc))
+        
+        # Print sample to console
+        if i % max(1, len(options)//10) == 0:
+            print(f"{opt.maturity:<6.2f} {opt.strike:<8.0f} {opt.market_price:<8.2f} | "
+                  f"{p_ana:<8.2f} {p_ana-opt.market_price:+.2f}   | "
+                  f"{p_mc:<8.2f} {p_mc-opt.market_price:+.2f}")
+        
+        rows.append({
+            "Maturity": opt.maturity, "Strike": opt.strike, "Market": opt.market_price, 
+            "Model_Ana": p_ana, "Diff_Ana": p_ana-opt.market_price,
+            "Model_Euler": p_mc, "Diff_Euler": p_mc-opt.market_price
         })
-        
-    df = pd.DataFrame(data_rows)
-    csv_path = f"{base_name}_prices.csv"
-    df.to_csv(csv_path, index=False)
-    print(f"[Saved] Prices:   {csv_path}")
 
+    pd.DataFrame(rows).to_csv(f"{base_name}_prices.csv", index=False)
+    print("-" * 80)
+    print(f"[Saved] Parameters:  {base_name}_meta.json")
+    print(f"[Saved] Price Table: {base_name}_prices.csv")
 # ==========================================
 # 3. MAIN EXECUTION
 # ==========================================
 def main():
-    print("=== FULL DUAL CALIBRATION: ANALYTICAL VS MONTE CARLO ===\n")
-
-    # 1. Configuration
-    ticker = "NVDA"
-    r = 0.045      # Risk-Free Rate (4.5%)
-    q = 0.003      # Dividend Yield (0.3%)
+    ticker = "NVDA" 
+    print(f"=== HESTON PRODUCTION CALIBRATION: {ticker} ===")
     
-    # 2. Fetch Data
-    print(f"Fetching live data for {ticker}...")
-    market_options, S0 = fetch_options(ticker, max_per_bucket=8)
-
-    if not market_options:
-        print("No valid options found. Check ticker or market hours.")
+    options, S0 = fetch_options(ticker)
+    options.sort(key=lambda x: (x.maturity, x.strike))
+    
+    if not options:
+        print("No options found.")
         return
 
-    # Sort for cleaner display
-    market_options.sort(key=lambda x: (x.maturity, x.strike))
-    
-    print(f"\n[Environment] Spot: {S0:.2f} | Rate: {r:.1%} | Div: {q:.1%} | Instruments: {len(market_options)}")
+    print(f"Calibrating to {len(options)} instruments.")
 
-    # 3. Initialize Calibrators
-    calibrator_ana = HestonCalibrator(S0, r, q)
-    # Note: 20k paths / 100 steps is a balance between speed and precision for calibration
-    calibrator_mc = HestonCalibratorMC(S0, r, q, n_paths=50000, n_steps=400)
+    # Calibration Config
+    r, q = 0.045, 0.003
     
-    # 4. Define Initial Guess [kappa, theta, xi, rho, v0]
-    # Using a generic start ensures we test the optimizer's convergence power
-    initial_guess = [1.5, 0.06, 0.5, -0.6, 0.06]
-    print(f"Initial Guess: {initial_guess}")
+    # 1. Initialize Engines
+    cal_ana = HestonCalibrator(S0, r, q)
+    
+    # --- FIX: Removed 'scheme' arg ---
+    cal_mc = HestonCalibratorMC(S0, r, q, n_paths=100000, n_steps=252) 
+    
+    # 2. Initial Guess [kappa, theta, xi, rho, v0]
+    init_guess = [2.0, 0.04, 0.5, -0.7, 0.04]
 
-    # ---------------------------------------------------------
-    # 5. Run Analytical Calibration (Fourier)
-    # ---------------------------------------------------------
-    print(f"\n[1/2] Analytical Calibration (L-BFGS-B + Fourier)...")
+    # 3. Run Analytical Calibration (Fast Benchmark)
+    print("\n[1] Analytical Calibration (Fourier)...")
     t0 = time.time()
-    try:
-        res_ana = calibrator_ana.calibrate(market_options, init_guess=initial_guess)
-        print(f"   -> Finished in {time.time() - t0:.2f}s")
-        print(f"   -> Success: {res_ana['success']} | RMSE-IV: {res_ana.get('rmse_iv', 0)*100:.2f}%")
-    except Exception as e:
-        print(f"   -> Analytical Calibration Failed: {e}")
-        return
+    res_ana = cal_ana.calibrate(options, init_guess)
+    print(f" -> RMSE: {res_ana['rmse_iv']*100:.2f}% (Time: {time.time()-t0:.2f}s)")
 
-    # ---------------------------------------------------------
-    # 6. Run Monte Carlo Calibration (Simulation)
-    # ---------------------------------------------------------
-    print(f"\n[2/2] Monte Carlo Calibration (L-BFGS-B + Simulation)...")
+    # 4. Run Monte Carlo Calibration (Production)
+    print("\n[2] Monte Carlo Calibration (Euler + Feller Constraint)...")
     t1 = time.time()
     try:
-        # We use the SAME initial guess to benchmark independent convergence
-        res_mc = calibrator_mc.calibrate(market_options, init_guess=initial_guess)
-        print(f"   -> Finished in {time.time() - t1:.2f}s")
-        print(f"   -> Success: {res_mc['success']} | RMSE-IV: {res_mc.get('rmse_iv', 0)*100:.2f}%")
+        res_mc = cal_mc.calibrate(options, init_guess)
+        print(f" -> RMSE: {res_mc['rmse_iv']*100:.2f}% (Time: {time.time()-t1:.2f}s)")
     except Exception as e:
-        print(f"   -> Monte Carlo Calibration Failed: {e}")
-        res_mc = res_ana # Fallback
+        print(f" -> Failed: {e}")
+        res_mc = res_ana # Fallback if MC fails completely
 
-    # ---------------------------------------------------------
-    # 7. Comparison & Output
-    # ---------------------------------------------------------
-    print("\n" + "="*75)
-    print(f"{'PARAMETER CONVERGENCE':^75}")
-    print("="*75)
-    print(f"{'Param':<10} | {'Analytical':<15} | {'Monte Carlo':<15} | {'Diff':<10}")
-    print("-" * 75)
-    
-    params = ['kappa', 'theta', 'xi', 'rho', 'v0']
-    for p in params:
+    # 5. Convergence Report
+    print("\n" + "="*60)
+    print(f"{'PARAMETER CONVERGENCE':^60}")
+    print("="*60)
+    print(f"{'Param':<10} | {'Analytical':<15} | {'MC Euler':<15} | {'Diff':<10}")
+    print("-" * 60)
+    for p in ['kappa','theta','xi','rho','v0']:
         v1 = res_ana.get(p, 0.0)
         v2 = res_mc.get(p, 0.0)
         print(f"{p:<10} | {v1:<15.4f} | {v2:<15.4f} | {abs(v1-v2):<10.4f}")
-    print("-" * 75)
-
-    print("\n[Price Fit Check (Sample)]")
-    print(f"{'Mat':<6} {'Strike':<8} {'Market':<8} {'Ana':<8} {'MC':<8} {'Diff(MC)'}")
-    print("-" * 75)
     
-    # Show every Nth option to fit on screen
-    step = max(1, len(market_options) // 10)
-    for i, opt in enumerate(market_options):
-        if i % step == 0:
-            p_ana = HestonAnalyticalPricer.price_european_call(
-                S0, opt.strike, opt.maturity, r, q, **{k: res_ana[k] for k in params}
-            )
-            p_mc = HestonAnalyticalPricer.price_european_call(
-                S0, opt.strike, opt.maturity, r, q, **{k: res_mc[k] for k in params}
-            )
-            print(f"{opt.maturity:<6.2f} {opt.strike:<8.0f} {opt.market_price:<8.2f} {p_ana:<8.2f} {p_mc:<8.2f} {p_mc - opt.market_price:+.2f}")
-
-    # 8. Save
-    save_results_to_disk(ticker, S0, r, q, res_ana, res_mc, initial_guess, market_options)
+    # 6. Save
+    save_results(ticker, S0, res_ana, res_mc, options)
 
 if __name__ == "__main__":
     main()
