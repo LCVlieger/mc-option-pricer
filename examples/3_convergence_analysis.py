@@ -97,7 +97,7 @@ def main():
     # Extrapolate to 100k paths
     t_py_equiv = t_py * (n_paths / n_paths_py)
     print(f"    Time: {t_py:.4f}s")
-    print(f"    Extrapolated to {n_paths}k: {t_py_equiv:.2f}s")
+    print(f"    Extrapolated to {n_paths} paths: {t_py_equiv:.2f}s")
 
     # B. NumPy (Run full batch)
     
