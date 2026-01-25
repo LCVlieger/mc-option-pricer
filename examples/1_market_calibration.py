@@ -11,8 +11,7 @@ from typing import List, Tuple, Dict
 from heston_pricer.calibration import HestonCalibrator, HestonCalibratorMC, MarketOption
 from heston_pricer.analytics import HestonAnalyticalPricer
 
-# --- 0. SYSTEM: CLEAR CACHE AUTOMATICALLY ---
-# Forces Numba to pick up any kernel changes immediately
+# Clear Numba cache to ensure fresh kernel compilation
 for root, dirs, files in os.walk("src"):
     for d in dirs:
         if d == "__pycache__":

@@ -169,7 +169,7 @@ class HestonCalibratorMC:
         bounds = [(0.5, 10.0), (0.001, 2.0), (0.01, 5.0), (-0.999, 0.0), (0.001, 2.0)]
         
         def callback(xk):
-             # Added flush=True here too
+             # Flush output to ensure real-time logging during optimization
              print(f"   [MC] Iter: k={xk[0]:.2f}, th={xk[1]:.3f}, xi={xk[2]:.2f}, rho={xk[3]:.2f}, v0={xk[4]:.3f}", flush=True)
 
         print(f"   [System] Starting MC Calibration (L-BFGS-B)...")

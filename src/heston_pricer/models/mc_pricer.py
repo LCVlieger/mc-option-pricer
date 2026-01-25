@@ -18,14 +18,12 @@ class MonteCarloPricer:
         # Pass kwargs (like 'noise') down to generate_paths
         paths = self.process.generate_paths(option.T, n_paths, n_steps, **kwargs)
         
-        # 2. Compute Payoffs
         payoffs = option.payoff(paths)
-        
-        # 3. Discount
+    
+        # Discount back to t=0
         discount_factor = np.exp(-self.process.market.r * option.T)
         discounted_payoffs = payoffs * discount_factor
-        
-        # 4. Statistics
+    
         mean_price = np.mean(discounted_payoffs)
         std_error = np.std(discounted_payoffs, ddof=1) / np.sqrt(n_paths)
         
