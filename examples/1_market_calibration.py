@@ -81,7 +81,7 @@ def main():
     
     # 2. Initialize Engines
     cal_ana = HestonCalibrator(S0, r, q)
-    cal_mc = HestonCalibratorMC(S0, r, q, n_paths=40000, n_steps=252) # Removed 'scheme' arg
+    cal_mc = HestonCalibratorMC(S0, r, q, n_paths=100000, n_steps=252) # Removed 'scheme' arg
     
     # Initial Guess [kappa, theta, xi, rho, v0]
     init_guess = [2.0, 0.04, 0.5, -0.7, 0.04]
