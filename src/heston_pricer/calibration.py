@@ -23,7 +23,7 @@ class HestonCalibrator:
 
     def calibrate(self, options: List[MarketOption], init_guess: List[float] = None) -> Dict:
         x0 = init_guess if init_guess else [3.0, 0.05, 0.3, -0.7, 0.04]
-        bounds = [(0.5, 10.0), (0.001, 2.0), (0.01, 5.0), (-0.999, 0.0), (0.001, 2.0)]
+        bounds =  [(0.5, 10.0), (0.001, 2.0), (0.01, 5.0), (-0.999, 0.0), (0.001, 2.0)]#[(0.5, 3.5), (0.05, 0.5), (0.01, 0.9), (-0.95, -0.5), (0.005, 0.5)] # 
 
         def objective(params):
             kappa, theta, xi, rho, v0 = params
@@ -56,7 +56,7 @@ class HestonCalibrator:
         result = minimize(
             objective, x0, method='L-BFGS-B', bounds=bounds,
             callback=callback,
-            tol=1-6, options={'ftol': 1e-7, 'eps': 1e-7, 'maxiter': 100}
+            tol=1-7, options={'ftol': 1e-7, 'eps': 1e-7, 'maxiter': 100}
         )
         # Prices the options using the optimized parameters & calculates the "implied volatility sse"
         # which is given by (1/#options)*sum__{i \in options} (iv_market[i] - iv_model[i])^2. 
@@ -141,7 +141,7 @@ class HestonCalibratorMC:
         self.options_cache = options
         self._precompute_batch_grid(options)
         x0 = init_guess if init_guess else [3.0, 0.05, 0.3, -0.7, 0.04]
-        bounds = [(0.5, 10.0), (0.001, 2.0), (0.01, 5.0), (-0.999, 0.0), (0.001, 2.0)]
+        bounds = [(0.5, 10.0), (0.001, 2.0), (0.01, 5.0), (-0.999, 0.0), (0.001, 2.0)]#[(0.5, 3.5), (0.05, 0.5), (0.01, 0.9), (-0.95, -0.5), (0.005, 0.5)]
         def callback(xk):
              print(f"   [MonteCarlo] k={xk[0]:.2f}, theta={xk[1]:.3f}, xi={xk[2]:.2f}, rho={xk[3]:.2f}, v0={xk[4]:.3f}", flush=True)
         
@@ -149,7 +149,7 @@ class HestonCalibratorMC:
         #Use a slightly lower tolerance here because of the Monte Carlo noise.    
         result = minimize(
             self.objective, x0, method='L-BFGS-B', bounds=bounds, 
-            callback=callback, tol=1e-7, options={'ftol': 1e-7, 'eps': 1e-7, 'maxiter': 200}
+            callback=callback, tol=1e-6, options={'ftol': 1e-7, 'eps': 1e-7, 'maxiter': 200}
         )
 
         final_mc_prices = self.get_prices(result.x)

@@ -1,109 +1,142 @@
 import yfinance as yf
 import pandas as pd
+import numpy as np
 from datetime import datetime
 from typing import List, Tuple
-from .calibration import MarketOption
+from .calibration import MarketOption 
 
-# fetch real-time options using yahoo finance. 
-
-def fetch_options(ticker_symbol: str, max_per_bucket: int = 7) -> Tuple[List[MarketOption], float]:
+def fetch_options(ticker_symbol: str, target_size: int = 150) -> Tuple[List[MarketOption], float]:
     ticker = yf.Ticker(ticker_symbol)
     
+    # 1. Fetch Spot
     try:
-        # Try to get real-time price first, fallback to previous close
         S0 = ticker.fast_info.get('last_price', None)
         if S0 is None:
             hist = ticker.history(period="1d")
-            if hist.empty: raise ValueError("No price data")
             S0 = hist['Close'].iloc[-1]
-    except Exception as e:
-        print(f"Error fetching spot price: {e}")
+    except:
         return [], 0.0
 
-    buckets = {
-        "Short":  {'min': 0.10, 'max': 0.40, 'count': 0},
-        "Medium": {'min': 0.40, 'max': 1.00, 'count': 0},
-        "Long":   {'min': 1.00, 'max': 3.00, 'count': 0}
-    }
+    print(f"--- Fetching Surface for {ticker_symbol} (Spot: {S0:.2f}) ---")
     
-    # Expanded moneyness for better surface coverage
-    target_moneyness = [0.70, 0.80, 0.90, 0.95, 1.00, 1.05, 1.10, 1.20, 1.30]
-    market_options = []
-    
-    print(f"Fetching option chain for {ticker_symbol} (Spot: {S0:.2f})...")
     expirations = ticker.options
     if not expirations: return [], 0.0
 
-    for exp_str in expirations:
-        if len(market_options) > 120: break
+    today = datetime.now()
+    
+    # 2. STABILIZED MATURITY SELECTION (Option A)
+    # Filter T < 45 days to prevent "Heston Trap" (Xi explosion)
+    MIN_T_YEARS = 55 / 365.25  # ~0.123 years
+    
+    short_dates = []   # 45 days - 6 months
+    med_dates = []     # 6-18 months
+    long_dates = []    # > 18 months
 
+    for exp_str in expirations:
+        try:
+            d = datetime.strptime(exp_str, "%Y-%m-%d")
+            T = (d - today).days / 365.25
+            
+            # [CRITICAL FIX] 
+            # Drop everything below 45 days. 
+            # These options require Jump-Diffusion (Bates), not Heston.
+            if T < MIN_T_YEARS: continue 
+            
+            if T < 0.5: short_dates.append(exp_str)
+            elif T < 1.5: med_dates.append(exp_str)
+            else: long_dates.append(exp_str)
+        except: continue
+
+    selected_dates = []
+    
+    # Even spacing helper
+    def pick_evenly(lst, n):
+        if len(lst) <= n: return lst
+        indices = np.linspace(0, len(lst)-1, n, dtype=int)
+        return [lst[i] for i in indices]
+
+    selected_dates.extend(pick_evenly(short_dates, 3))
+    selected_dates.extend(pick_evenly(med_dates, 4))
+    selected_dates.extend(long_dates) # Keep all LEAPS
+    
+    selected_dates = sorted(list(set(selected_dates)))
+    print(f"Scanning {len(selected_dates)} maturities (Filtered T < 14d)...")
+
+    # 3. CONSTRAINED MONEYNESS SEARCH
+    # Previous: [0.6 ... 1.6] -> New: [0.75 ... 1.45]
+    # Reason: 0.6 delta=1 calls have no vol info. 1.6 calls are often noise.
+    target_moneyness = [0.75, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.35, 1.45]
+    
+    market_options = []
+
+    for exp_str in selected_dates:
         try:
             exp_date = datetime.strptime(exp_str, "%Y-%m-%d")
-            T = (exp_date - datetime.now()).days / 365.25
+            T = (exp_date - today).days / 365.25
+            
+            chain = ticker.option_chain(exp_str).calls
+            if chain.empty: continue
+
+            # [FILTER] Liquidity & Data Integrity
+            # 1. Open Interest > 50 (Consensus check)
+            # 2. Bid > 0.05 (Penny noise check) - CRITICAL for Heston stability
+            mask = (chain['openInterest'] > 50) & (chain['bid'] > 0.05)
+            
+            # Relax OI for LEAPS (T > 1.5) as they are naturally thinner
+            if T > 1.5:
+                mask = (chain['openInterest'] > 0) & (chain['bid'] > 0.05)
+                
+            chain = chain[mask]
+            if chain.empty: continue
+
+            for m in target_moneyness:
+                target_k = S0 * m
+                
+                # Find closest available strike
+                chain['dist'] = (chain['strike'] - target_k).abs()
+                candidates = chain.nsmallest(1, 'dist')
+                
+                if candidates.empty: continue
+                
+                row = candidates.iloc[0]
+                
+                # [FILTER] Proximity Check
+                # If closest strike is > 7.5% away from target, skip (don't force fit)
+                if row['dist'] > (S0 * 0.075): continue
+
+                # Pricing Logic
+                bid, ask, last = row.get('bid', 0), row.get('ask', 0), row['lastPrice']
+                
+                # [FILTER] Spread Integrity
+                # If Spread > 40% of mid-price, data is too noisy.
+                mid = (bid + ask) / 2.0
+                spread = ask - bid
+                if mid > 0 and (spread / mid) > 0.4: continue
+
+                price = mid if (bid > 0 and ask > 0) else last
+                
+                # [FILTER] Hard Arbitrage Check
+                # Price must be > Intrinsic + Time Value buffer
+                intrinsic = max(S0 - row['strike'], 0)
+                if price <= intrinsic: continue 
+
+                # Avoid duplicates
+                is_dupe = any(o.strike == row['strike'] and o.maturity == T for o in market_options)
+                if not is_dupe:
+                    market_options.append(MarketOption(
+                        strike=float(row['strike']),
+                        maturity=float(T),
+                        market_price=float(price),
+                        option_type="CALL"
+                    ))
         except: continue
-        
-        # Skip extremely short expirations (< 2 weeks) to avoid microstructure noise
-        if T < 0.04: continue
 
-        target_bucket = next((name for name, b in buckets.items() 
-                              if b['min'] <= T <= b['max'] and b['count'] < max_per_bucket), None)
-        if not target_bucket: continue
+    # 4. Final Polish
+    market_options.sort(key=lambda x: (x.maturity, x.strike))
+    
+    if len(market_options) > target_size:
+        step = len(market_options) // target_size
+        market_options = market_options[::step]
 
-        try:
-            calls = ticker.option_chain(exp_str).calls
-        except: continue
-        if calls.empty: continue
-
-        # Filter roughly around spot
-        calls = calls[(calls['strike'] > S0 * 0.70) & (calls['strike'] < S0 * 1.40)]
-        
-        selected_indices = set()
-        for m in target_moneyness:
-            target_strike = S0 * m
-            # Find closest strike
-            calls['dist'] = (calls['strike'] - target_strike).abs()
-            if calls.empty: continue
-            
-            # Get the indices of the closest strikes
-            # We take the top 1 closest to ensure we get data if the absolute closest is illiquid
-            closest_candidates = calls.nsmallest(1, 'dist')
-            for idx in closest_candidates.index:
-                selected_indices.add(idx)
-
-        for idx in selected_indices:
-            if buckets[target_bucket]['count'] >= max_per_bucket: break
-            row = calls.loc[idx]
-            
-            # --- PRICING LOGIC ---
-            bid = row.get('bid', 0.0)
-            ask = row.get('ask', 0.0)
-            last = row['lastPrice']
-            
-            market_price = 0.0
-            
-            # Logic: Prefer Mid > Last. 
-            # If off-hours (bid/ask=0), force Last.
-            if bid > 0 and ask > 0 and bid < ask:
-                market_price = (bid + ask) / 2.0
-            else:
-                market_price = last
-            
-            # --- VALIDITY CHECKS ---
-            if market_price <= 0.05: continue 
-            
-            # Intrinsic Value Check (Arbitrage)
-            # If using Last Price, this check might fail due to Spot movement. 
-            # We relax it slightly for off-hours debugging (0.95 factor).
-            intrinsic = max(S0 - row['strike'], 0)
-            if market_price < (intrinsic * 0.95): continue 
-            
-            market_options.append(MarketOption(
-                strike=float(row['strike']),
-                maturity=float(T),
-                market_price=float(market_price),
-                option_type="CALL"
-            ))
-            buckets[target_bucket]['count'] += 1
-
-    print(f"Selected {len(market_options)} instruments across maturities.")
+    print(f"Selected {len(market_options)} instruments. Range: T=[{market_options[0].maturity:.2f}, {market_options[-1].maturity:.2f}].")
     return market_options, S0
