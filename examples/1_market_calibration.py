@@ -34,7 +34,7 @@ def save_results(ticker, S0, r, q, res_ana, res_mc, options):
     base_name = f"calibration_{ticker}_{timestamp}"
     
     # Save Metadata
-    with open(f"results/{base_name}_meta.json", "w") as f: 
+    with open(f"{base_name}_meta.json", "w") as f: 
         json.dump({
             "market": {"S0": S0, "r": r, "q": q}, 
             "analytical": res_ana, 
@@ -73,7 +73,7 @@ def save_results(ticker, S0, r, q, res_ana, res_mc, options):
 
     df = pd.DataFrame(rows)
     print(df[["T", "K", "Mkt", "Ana", "Err_A", "MC", "Err_MC"]].to_string(index=False))
-    df.to_csv(f"results/{base_name}_prices.csv", index=False) 
+    df.to_csv(f"{base_name}_prices.csv", index=False) 
     
     # --- 2. VISUALIZATION (Updated with Smoothing & Clipping) ---
     plot_surface(S0, r, q, res_mc, ticker, f"results/{base_name}", market_options=options)
@@ -222,12 +222,12 @@ def main():
     log(f"Target: {ticker} (S0={S0:.2f}) | N={len(options)}")
     
     avg_mkt_price = np.mean([o.market_price for o in options]) if options else 1.0
-    r, q = 0.045, 0.002  # SPX Dividend Yield approx 0.0 or embedded in Futures
+    r, q = 0.045, 0.002 #11  # SPX Dividend Yield approx 0.0 or embedded in Futures
 
     # Setup Calibrators
     cal_ana = HestonCalibrator(S0, r, q)
     cal_mc = HestonCalibratorMC(S0, r, q, n_paths=75_000, n_steps=252)
-    init_guess = [1.5, 0.03, 0.4, -0.7, 0.04] 
+    init_guess = [2.0, 0.04, 0.8, -0.7, 0.024] 
 
     # --- 1. Analytical Calibration ---
     t0 = time.time()    

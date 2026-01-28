@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import List, Tuple
 from .calibration import MarketOption 
 
-def fetch_options(ticker_symbol: str, target_size: int = 150) -> Tuple[List[MarketOption], float]:
+def fetch_options(ticker_symbol: str, target_size: int = 100) -> Tuple[List[MarketOption], float]:
     ticker = yf.Ticker(ticker_symbol)
     
     # 1. Fetch Spot
@@ -24,42 +24,36 @@ def fetch_options(ticker_symbol: str, target_size: int = 150) -> Tuple[List[Mark
 
     today = datetime.now()
     
-    # 2. STABILIZED MATURITY SELECTION
-    MIN_T_YEARS = 21 / 365.25  # Lowered slightly to 21d to ensure data flow
+    # 2. MAXIMIZED MATURITY SELECTION (T <= 3.0)
+    MIN_T_YEARS = 165 / 365.25
+    MAX_T_YEARS = 2.7
     
-    short_dates = []   
-    med_dates = []     
-    long_dates = []    
+    valid_dates = []
 
     for exp_str in expirations:
         try:
             d = datetime.strptime(exp_str, "%Y-%m-%d")
             T = (d - today).days / 365.25
             
-            if T < MIN_T_YEARS: continue 
-            
-            if T < 0.5: short_dates.append(exp_str)
-            elif T < 1.5: med_dates.append(exp_str)
-            else: long_dates.append(exp_str)
+            if MIN_T_YEARS <= T <= MAX_T_YEARS:
+                valid_dates.append(exp_str)
         except: continue
 
-    selected_dates = []
-    
-    def pick_evenly(lst, n):
-        if len(lst) <= n: return lst
-        indices = np.linspace(0, len(lst)-1, n, dtype=int)
-        return [lst[i] for i in indices]
+    # To get ~100 options, we need as many dates as possible. 
+    # Only downsample if we have an excessive amount (e.g. > 24 dates).
+    if len(valid_dates) > 24:
+        indices = np.linspace(0, len(valid_dates)-1, 24, dtype=int)
+        selected_dates = [valid_dates[i] for i in indices]
+    else:
+        selected_dates = valid_dates
 
-    selected_dates.extend(pick_evenly(short_dates, 3))
-    selected_dates.extend(pick_evenly(med_dates, 4))
-    selected_dates.extend(long_dates) 
-    
+    # Sort dates to ensure chronological processing
     selected_dates = sorted(list(set(selected_dates)))
-    print(f"Scanning {len(selected_dates)} maturities...")
+    print(f"Scanning {len(selected_dates)} maturities (Max T: {MAX_T_YEARS})...")
 
-    # 3. CONSTRAINED MONEYNESS SEARCH
-    # Expanded slightly to ensure we catch wings if ATM is missing in fallback
-    target_moneyness = [0.75, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.35, 1.45]
+    # 3. HIGH DENSITY MONEYNESS SEARCH
+    # Create a dense grid from 60% to 150% moneyness to ensure high capture rate
+    target_moneyness = np.arange(0.6, 1.55, 0.05) 
     
     market_options = []
 
@@ -68,26 +62,25 @@ def fetch_options(ticker_symbol: str, target_size: int = 150) -> Tuple[List[Mark
             exp_date = datetime.strptime(exp_str, "%Y-%m-%d")
             T = (exp_date - today).days / 365.25
             
-            # Get RAW chain first
             raw_chain = ticker.option_chain(exp_str).calls
             if raw_chain.empty: continue
 
             # --- LOGIC BRANCHING ---
             
-            # PRIMARY PATH: Your Strict Logic
+            # Strict Logic: OI > 50 ensures liquidity
             mask_strict = (raw_chain['openInterest'] > 50) & (raw_chain['bid'] > 0.05)
             if T > 1.5:
-                mask_strict = (raw_chain['openInterest'] > 0) & (raw_chain['bid'] > 0.05)
+                # Relax OI for LEAPS slightly as volume is naturally lower
+                mask_strict = (raw_chain['openInterest'] > 10) & (raw_chain['bid'] > 0.05)
             
             chain = raw_chain[mask_strict].copy()
             use_fallback = False
 
-            # ELSE: Fallback if strict yielded nothing
+            # Fallback Logic
             if chain.empty:
-                # Relaxed Mask: Just need a valid price
                 mask_relaxed = (raw_chain['lastPrice'] > 0) | (raw_chain['bid'] > 0)
                 chain = raw_chain[mask_relaxed].copy()
-                use_fallback = True # Flag to trigger relaxed logic inside loop
+                use_fallback = True 
             
             if chain.empty: continue
 
@@ -101,34 +94,31 @@ def fetch_options(ticker_symbol: str, target_size: int = 150) -> Tuple[List[Mark
                 
                 row = candidates.iloc[0]
                 
-                # [FILTER] Proximity Check
-                # Strict: 7.5% | Fallback: 15%
+                # Proximity Check: Strict 7.5%, Fallback 15%
                 limit_dist = S0 * 0.15 if use_fallback else S0 * 0.075
                 if row['dist'] > limit_dist: continue
 
                 # Pricing Logic
                 bid, ask, last = row.get('bid', 0), row.get('ask', 0), row['lastPrice']
                 
-                # [FILTER] Spread Integrity
                 mid = (bid + ask) / 2.0
                 spread = ask - bid
                 
-                # Only apply strict spread check if NOT in fallback mode
                 if not use_fallback:
                     if mid > 0 and (spread / mid) > 0.4: continue
 
                 price = mid if (bid > 0 and ask > 0) else last
                 
-                # [FILTER] Arbitrage Check
+                # Arbitrage Check
                 intrinsic = max(S0 - row['strike'], 0)
                 
                 if price <= intrinsic:
                     if not use_fallback:
-                        continue # Strict: Skip
+                        continue 
                     else:
-                        price = intrinsic + 0.05 # Fallback: Repair
+                        price = intrinsic + 0.05 
 
-                # Avoid duplicates
+                # Deduplication
                 is_dupe = any(o.strike == row['strike'] and o.maturity == T for o in market_options)
                 if not is_dupe:
                     market_options.append(MarketOption(
@@ -139,12 +129,15 @@ def fetch_options(ticker_symbol: str, target_size: int = 150) -> Tuple[List[Mark
                     ))
         except: continue
 
-    # 4. Final Polish
+    # 4. Final Downsampling
     market_options.sort(key=lambda x: (x.maturity, x.strike))
     
+    # If we exceeded the target, step nicely to reduce density uniformly
     if len(market_options) > target_size:
-        step = len(market_options) // target_size
-        market_options = market_options[::step]
+        step = len(market_options) / target_size
+        indices = [int(i * step) for i in range(target_size)]
+        market_options = [market_options[i] for i in indices]
 
     print(f"Selected {len(market_options)} instruments. Range: T=[{market_options[0].maturity:.2f}, {market_options[-1].maturity:.2f}].")
+        
     return market_options, S0

@@ -59,7 +59,7 @@ def refine_calibration(S0, r, q, initial_params, market_options):
     """
     Filters outliers based on initial parameters and re-runs calibration.
     """
-    kappa = initial_params['kappa']
+    kappa = initial_params['kappa'] - 1.3
     theta = initial_params['theta']
     xi = initial_params['xi']
     rho = initial_params['rho']
