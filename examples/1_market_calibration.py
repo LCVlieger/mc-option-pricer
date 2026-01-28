@@ -244,7 +244,7 @@ def plot_surface(S0, r, q, params, ticker, filename, market_options=None):
 
 def main():
     clear_numba_cache()
-    ticker =  "^SPX" # "NVDA" 
+    ticker =  "NVDA" #"^SPX" # "NVDA" 
     
     # Fetch Market Data
     options, S0 = fetch_options(ticker)
@@ -256,7 +256,7 @@ def main():
     log(f"Target: {ticker} (S0={S0:.2f}) | N={len(options)}")
     
     avg_mkt_price = np.mean([o.market_price for o in options]) if options else 1.0
-    r, q = 0.045, 0.011 #0.0002
+    r, q = 0.045, 0.0002 #0.011 #0.0002
 
     # Setup Calibrators
     cal_ana = HestonCalibrator(S0, r, q)
