@@ -4,3 +4,5 @@ __pycache__/
 # Personal files
 notes.txt
 
+#plotting once the calibration has been done 
+examples/4_validation_IVsurfaceplotting.py

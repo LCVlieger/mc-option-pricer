@@ -141,7 +141,7 @@ def plot_surface_professional(S0, r, q, params, ticker, filename, market_options
     mask = np.isnan(Z)
     if np.any(mask):
         Z = pd.DataFrame(Z).interpolate(method='linear', axis=1).ffill(axis=1).bfill(axis=1).values
-    Z_smooth = gaussian_filter(Z, sigma=0.6)
+    Z_smooth = gaussian_filter(Z, sigma=0.8)
 
     # --- 4. PLOTTING ---
     with plt.style.context('dark_background'):
@@ -189,13 +189,13 @@ def plot_surface_professional(S0, r, q, params, ticker, filename, market_options
 
                 # Needle
                 ax.plot([m_mkt, m_mkt], [t_mkt, t_mkt], [iv_mod, iv_mkt], 
-                        color='white', linestyle='-', linewidth=0.8, alpha=0.5, zorder=dot_zorder)
+                        color='white', linestyle='-', linewidth=0.5, alpha=0.4, zorder=dot_zorder)
                 
                 # Dot
                 lbl = 'Market Price-IV' if valid_needles == 1 else ""
                 ax.plot([m_mkt, m_mkt], [t_mkt, t_mkt], [iv_mkt], 
                         marker='o', linestyle='None',
-                        color="#F0F0F0", markersize=2.5, alpha=0.9, 
+                        color="#F0F0F0", markersize=4.0, alpha=0.9, 
                         zorder=dot_zorder, label=lbl)
 
         # --- 5. AESTHETICS ---

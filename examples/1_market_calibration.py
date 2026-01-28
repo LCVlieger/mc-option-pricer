@@ -222,7 +222,7 @@ def main():
     log(f"Target: {ticker} (S0={S0:.2f}) | N={len(options)}")
     
     avg_mkt_price = np.mean([o.market_price for o in options]) if options else 1.0
-    r, q = 0.045, 0.0002  # SPX Dividend Yield approx 0.0 or embedded in Futures
+    r, q = 0.045, 0.002  # SPX Dividend Yield approx 0.0 or embedded in Futures
 
     # Setup Calibrators
     cal_ana = HestonCalibrator(S0, r, q)
