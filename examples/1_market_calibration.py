@@ -166,7 +166,7 @@ def plot_surface(S0, r, q, params, ticker, filename, market_options=None):
                 diff = abs(iv_mkt - iv_mod)
                 if diff > 0.018:
                     # Optional: Print to confirm it's working
-                    print(f"Skipping outlier: Strike={opt.strike}, Error={diff:.4f}")
+                    print(f"Skipping outlier: Strike={opt.strike}, T = {opt.maturity} , Error={diff:.4f}")
                     continue
                 # Depth Logic
                 is_above = iv_mkt >= iv_mod
@@ -244,7 +244,7 @@ def plot_surface(S0, r, q, params, ticker, filename, market_options=None):
 
 def main():
     clear_numba_cache()
-    ticker =  "NVDA" # "NVDA" 
+    ticker =  "^SPX" # "NVDA" 
     
     # Fetch Market Data
     options, S0 = fetch_options(ticker)
@@ -256,12 +256,12 @@ def main():
     log(f"Target: {ticker} (S0={S0:.2f}) | N={len(options)}")
     
     avg_mkt_price = np.mean([o.market_price for o in options]) if options else 1.0
-    r, q = 0.045, 0.0002 #0.0002
+    r, q = 0.045, 0.011 #0.0002
 
     # Setup Calibrators
     cal_ana = HestonCalibrator(S0, r, q)
-    cal_mc = HestonCalibratorMC(S0, r, q, n_paths=50_000, n_steps=252)
-    init_guess = [2.0, 0.06, 0.2, -0.5, 0.02]  # [3.5, 0.240, 0.6, -0.7, 0.14] #[3.0, 0.05, 0.3, -0.7, 0.04] 
+    cal_mc = HestonCalibratorMC(S0, r, q, n_paths=75_000, n_steps=252)
+    init_guess = [1.5, 0.03, 0.4, -0.7, 0.04]  # [3.5, 0.240, 0.6, -0.7, 0.14] #[3.0, 0.05, 0.3, -0.7, 0.04] 
 
     # --- 1. Analytical Calibration ---
     t0 = time.time()    

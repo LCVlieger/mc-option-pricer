@@ -23,7 +23,7 @@ class HestonCalibrator:
 
     def calibrate(self, options: List[MarketOption], init_guess: List[float] = None) -> Dict:
         x0 = init_guess if init_guess else [3.0, 0.05, 0.3, -0.7, 0.04]
-        bounds =  [(0.5, 10.0), (0.001, 2.0), (0.01, 5.0), (-0.999, 0.0), (0.001, 2.0)]#[(0.5, 3.5), (0.05, 0.5), (0.01, 0.9), (-0.95, -0.5), (0.005, 0.5)] # 
+        bounds =  [(0.1, 10.0), (0.001, 2.0), (0.01, 5.0), (-0.999, 0.0), (0.001, 2.0)]#[(0.5, 3.5), (0.05, 0.5), (0.01, 0.9), (-0.95, -0.5), (0.005, 0.5)] # 
 
         def objective(params):
             kappa, theta, xi, rho, v0 = params
@@ -41,7 +41,7 @@ class HestonCalibrator:
                     self.S0, opt.strike, opt.maturity, self.r, self.q,
                     kappa, theta, xi, rho, v0
                 )
-                weight = 1.0 / np.sqrt(opt.market_price + 1e-5)
+                weight = 1.0 / (opt.market_price + 1e-5)
                 sse += ((model_price - opt.market_price) * weight) ** 2
             
             return sse + penalty
@@ -132,7 +132,7 @@ class HestonCalibratorMC:
         model_prices = self.get_prices(params)
         sse = 0.0
         for i, price in enumerate(model_prices):
-            weight = 1.0 / np.sqrt(self.options_cache[i].market_price + 1e-5)
+            weight = 1.0 / (self.options_cache[i].market_price + 1e-5)
             sse += ((price - self.options_cache[i].market_price) * weight) ** 2
         return sse + penalty
 
@@ -141,7 +141,7 @@ class HestonCalibratorMC:
         self.options_cache = options
         self._precompute_batch_grid(options)
         x0 = init_guess if init_guess else [3.0, 0.05, 0.3, -0.7, 0.04]
-        bounds = [(0.5, 10.0), (0.001, 2.0), (0.01, 5.0), (-0.999, 0.0), (0.001, 2.0)]#[(0.5, 3.5), (0.05, 0.5), (0.01, 0.9), (-0.95, -0.5), (0.005, 0.5)]
+        bounds = [(0.1, 10.0), (0.001, 2.0), (0.01, 5.0), (-0.999, 0.0), (0.001, 2.0)]#[(0.5, 3.5), (0.05, 0.5), (0.01, 0.9), (-0.95, -0.5), (0.005, 0.5)]
         def callback(xk):
              print(f"   [MonteCarlo] k={xk[0]:.2f}, theta={xk[1]:.3f}, xi={xk[2]:.2f}, rho={xk[3]:.2f}, v0={xk[4]:.3f}", flush=True)
         

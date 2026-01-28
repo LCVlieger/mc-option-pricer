@@ -65,7 +65,7 @@ class HestonAnalyticalPricer:
             return np.exp(C * v0 + D + drift_term)
 
         # Integration 
-        limit = 200 
+        limit = 950
         
         def integrand_p1(u):
             num = np.exp(-1j * u * np.log(K)) * heston_char_func(u - 1j)
@@ -77,7 +77,7 @@ class HestonAnalyticalPricer:
             denom = 1j * u
             return np.real(num / denom)
             
-        P1 = 0.5 + (1/np.pi) * integrate.quad(integrand_p1, 0, limit)[0]
-        P2 = 0.5 + (1/np.pi) * integrate.quad(integrand_p2, 0, limit)[0]
+        P1 = 0.5 + (1/np.pi) * integrate.quad(integrand_p1, 0, 950,limit=limit)[0]
+        P2 = 0.5 + (1/np.pi) * integrate.quad(integrand_p2, 0, 950,limit=limit)[0]
         
         return S0 * np.exp(-q * T) * P1 - K * np.exp(-r * T) * P2
