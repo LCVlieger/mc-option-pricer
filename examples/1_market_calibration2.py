@@ -29,7 +29,7 @@ Calibrates Heston parameters to live market data (NVDA/SPX) and generates
 a publication-grade volatility surface visualization.
 """
 
-def save_results(ticker, S0, r, q, res_ana, res_mc, options):
+def save_results(ticker, S0, r, q, res_ana, options):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base_name = f"calibration_{ticker}_{timestamp}"
     
@@ -38,17 +38,12 @@ def save_results(ticker, S0, r, q, res_ana, res_mc, options):
         json.dump({
             "market": {"S0": S0, "r": r, "q": q}, 
             "analytical": res_ana, 
-            "monte_carlo_results": res_mc 
+            #"monte_carlo_results": res_mc 
         }, f, indent=4)
 
     # --- 1. VALIDATION TABLE ---
-    env_mc = MarketEnvironment(
-        S0=S0, r=r, q=q,
-        kappa=res_mc['kappa'], theta=res_mc['theta'], 
-        xi=res_mc['xi'], rho=res_mc['rho'], v0=res_mc['v0']
-    )
-    process_mc = HestonProcess(env_mc)
-    pricer_mc = MonteCarloPricer(process_mc)
+    #process_mc = HestonProcess(env_mc)
+    #pricer_mc = MonteCarloPricer(process_mc)
 
     get_params_ana = lambda res: [res.get(k, 0) for k in ['kappa', 'theta', 'xi', 'rho', 'v0']]
     rows = []
@@ -70,30 +65,24 @@ def save_results(ticker, S0, r, q, res_ana, res_mc, options):
         instrument = EuropeanOption(opt.strike, opt.maturity, inst_type)
         
         # Monte Carlo Price
-        mc_result = pricer_mc.price(instrument, n_paths=100_000, n_steps=steps)
-        p_mc = mc_result.price
+        #mc_result = pricer_mc.price(instrument, n_paths=100_000, n_steps=steps)
+        #p_mc = mc_result.price
         
         # IV Calculation
         iv_mkt = implied_volatility(opt.market_price, S0, opt.strike, opt.maturity, r, q, opt.option_type)
-        iv_mc = implied_volatility(p_mc, S0, opt.strike, opt.maturity, r, q, opt.option_type)
+        #iv_mc = implied_volatility(p_mc, S0, opt.strike, opt.maturity, r, q, opt.option_type)
 
         rows.append({
             "Type": opt.option_type,
             "T": opt.maturity, "K": opt.strike, "Mkt": opt.market_price, 
             "Ana": round(p_ana, 2), "Err_A": round(p_ana - opt.market_price, 2),
-            "MC": round(p_mc, 2), "Err_MC": round(p_mc - opt.market_price, 2),
-            "IV_Mkt": iv_mkt, "IV_MC": iv_mc
+            "IV_Mkt": iv_mkt,
         })
 
     df = pd.DataFrame(rows)
     # Added 'Type' column to output for clarity
-    print(df[["Type", "T", "K", "Mkt", "Ana", "Err_A", "MC", "Err_MC"]].to_string(index=False))
+    print(df[["Type", "T", "K", "Mkt", "Ana", "Err_A"]].to_string(index=False))
     df.to_csv(f"{base_name}_prices.csv", index=False) 
-    
-    # --- 2. VISUALIZATION (Updated with Smoothing & Clipping) ---
-    plot_surface(S0, r, q, res_mc, ticker, f"results/{base_name}", market_options=options)
-    
-    log(f"Artifacts saved to results/{base_name}*")
 
 def plot_surface(S0, r, q, params, ticker, filename, market_options=None):
     """
@@ -232,8 +221,8 @@ def main():
     r, q = 0.045, 0.011
 
     cal_ana = HestonCalibrator(S0, r, q)
-    cal_mc = HestonCalibratorMC(S0, r, q, n_paths=75_000, n_steps=252)
-    init_guess = [2.0, 0.1, 0.1, -0.7, 0.015]
+    #cal_mc = HestonCalibratorMC(S0, r, q, n_paths=75_000, n_steps=252)
+    init_guess = [2.0, 0.025, 1.1, -0.7, 0.015]
 
     # --- 1. Analytical Calibration ---
     t0 = time.time()    
@@ -244,22 +233,22 @@ def main():
     
     # --- 2. Monte Carlo Calibration ---
     t1 = time.time()
-    try:
-        res_mc = cal_mc.calibrate(options, init_guess)
-        rmse_p_mc = np.sqrt(res_mc['fun'] / len(options)) 
-        log(f"MonteCarlo: rmse={rmse_p_mc:.4f} ({rmse_p_mc/avg_mkt_price:.2%}) , IV-rmse={res_mc['rmse_iv']:.4f} ({res_mc['rmse_iv']:.2%}) ({time.time()-t1:.2f}s)")
-    except Exception as e:
-        log(f"MC Fail: {e}")
-        res_mc = res_ana 
+    #try:
+        #res_mc = cal_mc.calibrate(options, init_guess)
+        #rmse_p_mc = np.sqrt(res_mc['fun'] / len(options)) 
+        #log(f"MonteCarlo: rmse={rmse_p_mc:.4f} ({rmse_p_mc/avg_mkt_price:.2%}) , IV-rmse={res_mc['rmse_iv']:.4f} ({res_mc['rmse_iv']:.2%}) ({time.time()-t1:.2f}s)")
+    #except Exception as e:
+    #    log(f"MC Fail: {e}")
+    #    res_mc = res_ana 
 
     params = ['kappa', 'theta', 'xi', 'rho', 'v0']
     df_params = pd.DataFrame({
         'Ana': [res_ana.get(p, 0.0) for p in params],
-        'MC': [res_mc.get(p, 0.0) for p in params]
+        #'MC': [res_mc.get(p, 0.0) for p in params]
     }, index=params)
     print(df_params.to_string(float_format="{:.4f}".format))
     
-    save_results(ticker, S0, r, q, res_ana, res_mc, options)
+    save_results(ticker, S0, r, q, res_ana,  options)
 
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")

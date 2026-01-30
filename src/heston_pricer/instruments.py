@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from enum import Enum
 import numpy as np
+from dataclasses import dataclass
 
 class OptionType(Enum):
     CALL = 1
@@ -67,3 +68,10 @@ class BarrierOption(Option):
             return intrinsic_payoff * active_mask
             
         return intrinsic_payoff
+    
+@dataclass
+class MarketOption:
+    strike: float
+    maturity: float
+    market_price: float
+    option_type: str = OptionType.CALL

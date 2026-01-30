@@ -44,7 +44,6 @@ class BlackScholesPricer:
 class HestonAnalyticalPricer:
     """
     Semi-analytic Heston European Pricing. ('The Volatility Surface: A Practitioners Guide, Jim Gatheral, CH2 p.16-18'). 
-    (todo)
     """
     @staticmethod
     def price_european_call(S0, K, T, r, q, kappa, theta, xi, rho, v0):
@@ -77,7 +76,16 @@ class HestonAnalyticalPricer:
             denom = 1j * u
             return np.real(num / denom)
             
-        P1 = 0.5 + (1/np.pi) * integrate.quad(integrand_p1, 0, 950,limit=limit)[0]
-        P2 = 0.5 + (1/np.pi) * integrate.quad(integrand_p2, 0, 950,limit=limit)[0]
+        P1 = 0.5 + (1/np.pi) * integrate.quad(integrand_p1, 0, 950, limit=limit)[0]
+        P2 = 0.5 + (1/np.pi) * integrate.quad(integrand_p2, 0, 950, limit=limit)[0]
         
         return S0 * np.exp(-q * T) * P1 - K * np.exp(-r * T) * P2
+
+    @staticmethod
+    def price_european_put(S0, K, T, r, q, kappa, theta, xi, rho, v0):
+        """
+        Prices a European Put using Put-Call Parity.
+        P = C - S*exp(-qT) + K*exp(-rT)
+        """
+        call_price = HestonAnalyticalPricer.price_european_call(S0, K, T, r, q, kappa, theta, xi, rho, v0)
+        return call_price - S0 * np.exp(-q * T) + K * np.exp(-r * T)
