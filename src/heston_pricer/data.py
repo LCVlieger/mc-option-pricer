@@ -99,7 +99,7 @@ def fetch_options(ticker_symbol: str, target_size: int = 100) -> Tuple[List[Mark
     selected_indices = set()
     
     # Skew Factor: 2.0 = Quadratic (Standard), 3.0 = Cubic (Very ATM heavy)
-    SKEW_POWER = 2.0 
+    SKEW_POWER = 2.0
     
     print(f"Stratifying {len(unique_maturities)} maturities with Quadratic ATM Skew...")
     

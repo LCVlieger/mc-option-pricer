@@ -2,11 +2,12 @@ import numpy as np
 from scipy.optimize import minimize, brentq
 from scipy.stats import norm
 from dataclasses import dataclass
-from typing import List, Dict
+from typing import List, Dict, Union
 from scipy.interpolate import interp1d
 from collections import defaultdict
 
 # Internal imports - Ensure these exist in your project structure
+# Assuming these imports work in your env based on previous context
 from .analytics import HestonAnalyticalPricer
 from .market import MarketEnvironment
 from .models.process import HestonProcess
@@ -22,14 +23,20 @@ class SimpleYieldCurve:
     def __init__(self, tenors: List[float], rates: List[float]):
         self.tenors = tenors
         self.rates = rates
-        self.curve = interp1d(
-            tenors, rates, 
-            kind='linear', 
-            fill_value="extrapolate" 
-        )
+        # Handle single rate case (flat curve)
+        if len(tenors) == 1:
+            self.curve = lambda t: rates[0]
+        else:
+            self.curve = interp1d(
+                tenors, rates, 
+                kind='linear', 
+                fill_value="extrapolate" 
+            )
 
     def get_rate(self, T: float) -> float:
-        if T < 1e-5: return float(self.curve(0.0))
+        if T < 1e-5: 
+            # Avoid extrapolation errors at T=0
+            return float(self.rates[0]) if self.tenors else 0.0
         return float(self.curve(T))
 
     def to_dict(self):
@@ -62,10 +69,10 @@ def implied_volatility(price: float, S: float, K: float, T: float, r: float, q: 
 
 # --- ANALYTICAL CALIBRATOR ---
 class HestonCalibrator:
-    def __init__(self, S0: float, r_curve: SimpleYieldCurve, q: float = 0.0):
+    def __init__(self, S0: float, r_curve: SimpleYieldCurve, q_curve: SimpleYieldCurve):
         self.S0 = S0
         self.r_curve = r_curve
-        self.q = q
+        self.q_curve = q_curve # Now a Curve object
 
     def calibrate(self, options: List[MarketOption], init_guess: List[float] = None) -> Dict:
         x0 = init_guess if init_guess else [2.0, 0.05, 0.3, -0.7, 0.04]
@@ -82,21 +89,23 @@ class HestonCalibrator:
 
             total_error = 0.0
             for opt in options:
+                # Term Structure Lookups
                 r_T = self.r_curve.get_rate(opt.maturity)
+                q_T = self.q_curve.get_rate(opt.maturity)
                 
-                # 1. Analytical Price
+                # 1. Analytical Price using specific r_T and q_T
                 if opt.option_type == "PUT":
                     model_p = HestonAnalyticalPricer.price_european_put(
-                        self.S0, opt.strike, opt.maturity, r_T, self.q, kappa, theta, xi, rho, v0
+                        self.S0, opt.strike, opt.maturity, r_T, q_T, kappa, theta, xi, rho, v0
                     )
                 else:
                     model_p = HestonAnalyticalPricer.price_european_call(
-                        self.S0, opt.strike, opt.maturity, r_T, self.q, kappa, theta, xi, rho, v0
+                        self.S0, opt.strike, opt.maturity, r_T, q_T, kappa, theta, xi, rho, v0
                     )
                 
                 # 2. Moneyness Weighting
                 moneyness = np.log(opt.strike / self.S0)
-                wing_weight = 1.0 + 5.0 * (moneyness**2)
+                wing_weight = 1.0 + 2.0 * (moneyness**2)
                 
                 # 3. Relative Error
                 relative_error = (model_p - opt.market_price) / (opt.market_price + 1e-5)
@@ -113,22 +122,24 @@ class HestonCalibrator:
             tol=1e-7, options={'ftol': 1e-7, 'eps': 1e-7, 'maxiter': 100}
         )
         
-        # Final Stats
+        # Final Stats calculation
         kappa, theta, xi, rho, v0 = result.x
         sse_iv, count = 0.0, 0
         for opt in options:
             r_T = self.r_curve.get_rate(opt.maturity)
+            q_T = self.q_curve.get_rate(opt.maturity)
+            
             if opt.option_type == "PUT":
                 model_price = HestonAnalyticalPricer.price_european_put(
-                    self.S0, opt.strike, opt.maturity, r_T, self.q, kappa, theta, xi, rho, v0
+                    self.S0, opt.strike, opt.maturity, r_T, q_T, kappa, theta, xi, rho, v0
                 )
             else:
                 model_price = HestonAnalyticalPricer.price_european_call(
-                    self.S0, opt.strike, opt.maturity, r_T, self.q, kappa, theta, xi, rho, v0
+                    self.S0, opt.strike, opt.maturity, r_T, q_T, kappa, theta, xi, rho, v0
                 )
             
-            iv_mkt = implied_volatility(opt.market_price, self.S0, opt.strike, opt.maturity, r_T, self.q, opt.option_type)
-            iv_model = implied_volatility(model_price, self.S0, opt.strike, opt.maturity, r_T, self.q, opt.option_type)
+            iv_mkt = implied_volatility(opt.market_price, self.S0, opt.strike, opt.maturity, r_T, q_T, opt.option_type)
+            iv_model = implied_volatility(model_price, self.S0, opt.strike, opt.maturity, r_T, q_T, opt.option_type)
             
             if iv_mkt > 0 and iv_model > 0:
                 sse_iv += (iv_model - iv_mkt) ** 2
@@ -142,10 +153,10 @@ class HestonCalibrator:
 
 # --- MONTE CARLO CALIBRATOR ---
 class HestonCalibratorMC:
-    def __init__(self, S0: float, r_curve: SimpleYieldCurve, q: float = 0.0, n_paths: int = 30000, n_steps: int = 100):
+    def __init__(self, S0: float, r_curve: SimpleYieldCurve, q_curve: SimpleYieldCurve, n_paths: int = 30000, n_steps: int = 100):
         self.S0 = S0
         self.r_curve = r_curve
-        self.q = q
+        self.q_curve = q_curve # Now a Curve object
         self.n_paths = n_paths
         self.n_steps = n_steps
         self.z_noise = None 
@@ -156,8 +167,9 @@ class HestonCalibratorMC:
         self.dt = 0.0
 
     def _precompute_batches(self, options: List[MarketOption]):
-        """Organizes options by maturity to handle r(T)."""
+        """Organizes options by maturity to handle term structures."""
         self.maturity_batches.clear()
+        if not options: return
         self.max_T = max(opt.maturity for opt in options)
         self.dt = self.max_T / self.n_steps
         
@@ -176,11 +188,12 @@ class HestonCalibratorMC:
         
         results = {}
         
-        # Loop over unique maturities (The "Just r(T)" logic)
+        # Loop over unique maturities
         for T_target, opts in self.maturity_batches.items():
             
-            # A. Get rate for this specific maturity
+            # A. Get rate/div for this specific maturity
             r_T = self.r_curve.get_rate(T_target)
+            q_T = self.q_curve.get_rate(T_target)
             
             # B. Determine steps needed for this T
             steps_needed = int(round(T_target / self.dt))
@@ -188,7 +201,7 @@ class HestonCalibratorMC:
             if steps_needed > self.n_steps: steps_needed = self.n_steps
             
             # C. Setup Environment & Process
-            env = MarketEnvironment(self.S0, r_T, self.q)
+            env = MarketEnvironment(self.S0, r_T, q_T)
             process = HestonProcess(env)
             process.market.kappa = kappa
             process.market.theta = theta
@@ -240,7 +253,7 @@ class HestonCalibratorMC:
                 model_p = m_prices[i]
                 
                 moneyness = np.log(opt.strike / self.S0)
-                wing_weight = 1.0 + 5.0 * (moneyness**2)
+                wing_weight = 1.0 + 1.0 * (moneyness**2)
                 
                 relative_error = (model_p - opt.market_price) / (opt.market_price + 1e-5)
                 total_error += wing_weight * (relative_error**2)
@@ -267,10 +280,11 @@ class HestonCalibratorMC:
         
         for T, opts in self.maturity_batches.items():
             r_T = self.r_curve.get_rate(T)
+            q_T = self.q_curve.get_rate(T) # Look up Q for this T
             m_prices = final_map[T]
             for i, opt in enumerate(opts):
-                iv_mkt = implied_volatility(opt.market_price, self.S0, opt.strike, opt.maturity, r_T, self.q, opt.option_type)
-                iv_model = implied_volatility(m_prices[i], self.S0, opt.strike, opt.maturity, r_T, self.q, opt.option_type)
+                iv_mkt = implied_volatility(opt.market_price, self.S0, opt.strike, opt.maturity, r_T, q_T, opt.option_type)
+                iv_model = implied_volatility(m_prices[i], self.S0, opt.strike, opt.maturity, r_T, q_T, opt.option_type)
                 
                 if iv_mkt > 0 and iv_model > 0:
                     sse_iv += (iv_model - iv_mkt) ** 2
